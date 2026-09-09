@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Newsletter Admin</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  :root { --bg:#0f172a; --card:#1e293b; --accent:#38bdf8; --text:#e2e8f0; --muted:#94a3b8; --border:#334155; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: -apple-system, Segoe UI, sans-serif; background:var(--bg); color:var(--text); }
+  header { padding:20px 32px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; }
+  h1 { font-size:18px; margin:0; }
+  main { padding:24px 32px; display:grid; grid-template-columns: repeat(auto-fit, minmax(360px,1fr)); gap:20px; max-width:1400px; margin:0 auto; }
+  .card { background:var(--card); border:1px solid var(--border); border-radius:10px; padding:20px; }
+  .card h2 { margin-top:0; font-size:15px; color:var(--accent); }
+  .stat { font-size:28px; font-weight:700; }
+  .muted { color:var(--muted); font-size:13px; }
+  input, textarea, select { width:100%; background:#0f172a; border:1px solid var(--border); color:var(--text); padding:8px; border-radius:6px; margin-bottom:8px; font-family:inherit; font-size:13px; }
+  textarea { min-height:140px; font-family: monospace; }
+  button { background:var(--accent); color:#0f172a; border:none; padding:8px 14px; border-radius:6px; font-weight:600; cursor:pointer; font-size:13px; }
+  button.secondary { background:transparent; border:1px solid var(--border); color:var(--text); }
+  button:hover { opacity:0.9; }
+  .list-item { padding:8px 0; border-bottom:1px solid var(--border); font-size:13px; display:flex; justify-content:space-between; align-items:center; }
+  .list-item:last-child { border-bottom:none; }
+  .badge { padding:2px 8px; border-radius:20px; font-size:11px; }
+  .badge.draft { background:#334155; }
+  .badge.sending { background:#854d0e; }
+  .badge.sent { background:#166534; }
+  #tokenBar { display:flex; gap:8px; align-items:center; }
+  #tokenBar input { width:220px; margin:0; }
+  .row { display:flex; gap:8px; }
+  .row > * { flex:1; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>📰 Newsletter Admin</h1>
+  <div id="tokenBar">
+    <input id="adminToken" placeholder="Admin token" />
+    <button onclick="saveToken()">Save</button>
+  </div>
+</header>
+
+<main>
+  <div class="card">
+    <h2>Contacts</h2>
+    <div class="stat" id="contactStat">-</div>
+    <div class="muted">active / total contacts synced from Rex via Zapier</div>
+    <button class="secondary" style="margin-top:12px" onclick="loadContacts()">Refresh</button>
+  </div>
+
+  <div class="card">
+    <h2>Recent Listings (from Zapier)</h2>
+    <div id="listingsList" class="muted">Loading…</div>
+  </div>
+
+  <div class="card">
+    <h2>Templates</h2>
+    <div id="templatesList" class="muted">Loading…</div>
+    <hr style="border-color:var(--border); margin:16px 0" />
+    <div class="muted" style="margin-bottom:8px">New / edit template — use <code>{{field}}</code> for variables (e.g. {{address}}, {{price}}, {{first_name}}). Include <code>{{{unsubscribe_url}}}</code> somewhere.</div>
+    <input id="tplName" placeholder="Template name" />
+    <input id="tplSubject" placeholder="Subject line, e.g. New listing at {{address}}" />
+    <textarea id="tplHtml" placeholder="<h1>{{address}}</h1><p>{{currency price}}</p>..."></textarea>
+    <div class="row">
+      <button onclick="saveTemplate()">Save Template</button>
+      <button class="secondary" onclick="previewTemplate()">Preview</button>
+    </div>
+    <div id="previewBox" style="margin-top:10px"></div>
+  </div>
+
+  <div class="card">
+    <h2>Create Campaign</h2>
+    <select id="campTemplate"></select>
+    <select id="campListing"></select>
+    <input id="campSubjectOverride" placeholder="Subject override (optional)" />
+    <button onclick="createCampaign()">Create Draft Campaign</button>
+    <div id="campResult" class="muted" style="margin-top:8px"></div>
+  </div>
+
+  <div class="card">
+    <h2>Campaigns</h2>
+    <div id="campaignsList" class="muted">Loading…</div>
+  </div>
+</main>
+
+<script>
+let TOKEN = localStorage.getItem("adminToken") || "";
+document.getElementById("adminToken").value = TOKEN;
+
+function saveToken() {
+  TOKEN = document.getElementById("adminToken").value.trim();
+  localStorage.setItem("adminToken", TOKEN);
+  loadAll();
+}
+
+async function api(path, opts = {}) {
+  const res = await fetch(path, {
+    ...opts,
+    headers: { "Content-Type": "application/json", "x-admin-token": TOKEN, ...(opts.headers || {}) },
+  });
+  if (!res.ok) { const err = await res.json().catch(()=>({error:res.statusText})); throw new Error(err.error || "Request failed"); }
+  return res.json();
+}
+
+async function loadContacts() {
+  try {
+    const data = await api("/api/contacts");
+    document.getElementById("contactStat").textContent = `${data.active} / ${data.total}`;
+  } catch (e) { document.getElementById("contactStat").textContent = "—"; }
+}
+
+async function loadListings() {
+  const el = document.getElementById("listingsList");
+  const sel = document.getElementById("campListing");
+  try {
+    const rows = await api("/api/listings");
+    if (!rows.length) { el.textContent = "No listings received yet."; }
+    el.innerHTML = rows.slice(0,5).map(r => `<div class="list-item"><span>#${r.id} — ${new Date(r.created_at).toLocaleString()}</span></div>`).join("");
+    sel.innerHTML = '<option value="">(no listing — manual data)</option>' + rows.map(r => `<option value="${r.id}">#${r.id} — ${JSON.stringify(r.data).slice(0,40)}...</option>`).join("");
+  } catch (e) { el.textContent = "Set your admin token above."; }
+}
+
+async function loadTemplates() {
+  const el = document.getElementById("templatesList");
+  const sel = document.getElementById("campTemplate");
+  try {
+    const rows = await api("/api/templates");
+    window._templates = rows;
+    el.innerHTML = rows.length ? rows.map(r => `<div class="list-item"><span>${r.name}</span><button class="secondary" onclick="editTemplate(${r.id})">Edit</button></div>`).join("") : "No templates yet.";
+    sel.innerHTML = rows.map(r => `<option value="${r.id}">${r.name}</option>`).join("");
+  } catch (e) { el.textContent = "Set your admin token above."; }
+}
+
+async function editTemplate(id) {
+  const t = await api(`/api/templates/${id}`);
+  document.getElementById("tplName").value = t.name;
+  document.getElementById("tplName").dataset.editId = t.id;
+  document.getElementById("tplSubject").value = t.subject;
+  document.getElementById("tplHtml").value = t.html;
+}
+
+async function saveTemplate() {
+  const name = document.getElementById("tplName").value;
+  const subject = document.getElementById("tplSubject").value;
+  const html = document.getElementById("tplHtml").value;
+  const editId = document.getElementById("tplName").dataset.editId;
+  if (editId) {
+    await api(`/api/templates/${editId}`, { method: "PUT", body: JSON.stringify({ name, subject, html }) });
+    delete document.getElementById("tplName").dataset.editId;
+  } else {
+    await api("/api/templates", { method: "POST", body: JSON.stringify({ name, subject, html }) });
+  }
+  loadTemplates();
+}
+
+async function previewTemplate() {
+  const editId = document.getElementById("tplName").dataset.editId;
+  const box = document.getElementById("previewBox");
+  if (!editId) { box.innerHTML = '<span class="muted">Save the template first to preview it.</span>'; return; }
+  const result = await api(`/api/templates/${editId}/preview`, { method: "POST", body: JSON.stringify({ data: { address: "123 Sample St", price: 750000 } }) });
+  box.innerHTML = `<div class="muted">Subject: ${result.subject}</div><iframe style="width:100%;height:200px;background:#fff;border-radius:6px;border:none;margin-top:6px" srcdoc="${result.html.replace(/"/g,'&quot;')}"></iframe>`;
+}
+
+async function createCampaign() {
+  const template_id = document.getElementById("campTemplate").value;
+  const listing_id = document.getElementById("campListing").value || null;
+  const subject = document.getElementById("campSubjectOverride").value || undefined;
+  const result = await api("/api/campaigns", { method: "POST", body: JSON.stringify({ template_id, listing_id, subject }) });
+  document.getElementById("campResult").textContent = `Draft campaign #${result.campaign_id} created for ${result.recipient_count} recipients.`;
+  loadCampaigns();
+}
+
+async function loadCampaigns() {
+  const el = document.getElementById("campaignsList");
+  try {
+    const rows = await api("/api/campaigns");
+    el.innerHTML = rows.length ? rows.map(c => `
+      <div class="list-item">
+        <span>#${c.id} <span class="badge ${c.status}">${c.status}</span> ${c.sent_count}/${c.total_recipients}</span>
+        ${c.status === "draft" ? `<button onclick="sendCampaign(${c.id})">Send</button>` : ""}
+      </div>`).join("") : "No campaigns yet.";
+  } catch (e) { el.textContent = "Set your admin token above."; }
+}
+
+async function sendCampaign(id) {
+  if (!confirm("Send this campaign to all active contacts now? This cannot be undone.")) return;
+  await api(`/api/campaigns/${id}/send`, { method: "POST" });
+  loadCampaigns();
+  setInterval(loadCampaigns, 3000);
+}
+
+function loadAll() { loadContacts(); loadListings(); loadTemplates(); loadCampaigns(); }
+if (TOKEN) loadAll();
+</script>
+
+</body>
+</html>

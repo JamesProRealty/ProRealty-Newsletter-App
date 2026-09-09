@@ -1,0 +1,15 @@
+node_modules/
+.env
+data/*.db
+data/*.db-*
+src/public/uploads/*
+!src/public/uploads/.gitkeep
+!src/public/uploads/brand-header-for-sale.jpg
+!src/public/uploads/brand-header-for-lease.jpg
+!src/public/uploads/icon-lease.png
+!src/public/uploads/icon-zoning.png
+!src/public/uploads/icon-parking.png
+!src/public/uploads/icon-income.png
+!src/public/uploads/icon-land-area.png
+!src/public/uploads/icon-building-area.png
+client/node_modules/
