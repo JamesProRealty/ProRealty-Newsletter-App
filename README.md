@@ -186,6 +186,13 @@ real Rex export and reads these columns natively:
 - **Photos** — the `images` column (comma-separated URLs — Rex typically exports 10-20+ per listing)
 - **Agents** — `listing_agents.1.name` / `.email` / `.mobile`, and `listing_agents.2.*` for a
   second agent if present
+- **Listing page URL** — built automatically as
+  `https://prorealty.com.au/listings/{category}-R2-{id}-{suburb}`, e.g.
+  `commercial_sale-R2-5043003-hawthorn`. Confirmed against 3 real live listing URLs (2 Commercial
+  Sale, 1 Commercial Rental) — Residential and Land listings use the same pattern but haven't
+  been spot-checked against an actual live page, so it's worth clicking through a couple after
+  your first import to confirm they land correctly. Uses the CSV's `id` column specifically —
+  *not* `property_id`, which is a completely different number for the same listing.
 
 **Prefer to build your own CSV instead?** These simpler columns work too, and take priority
 over the Rex-native ones above when present (case-insensitive header row):

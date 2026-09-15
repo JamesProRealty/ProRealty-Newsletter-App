@@ -3,7 +3,7 @@ import {
   Type, Image as ImageIcon, MousePointerClick, Minus, MoveVertical,
   PanelBottom, LayoutTemplate, Trash2, Copy, Download, Upload,
   Code2, X, GripVertical, Plus, Menu, Users, Images, UploadCloud, Wand2, Save, FolderOpen, Palette, LayoutGrid, ChevronUp, ChevronDown, Newspaper, Building2,
-  Facebook, Linkedin, Instagram, Twitter, Youtube
+  Facebook, Linkedin, Instagram, Twitter, Youtube, ClipboardCheck
 } from "lucide-react";
 
 // ---------------------------------------------------------------------------
@@ -275,6 +275,8 @@ function defaultProps(type) {
         textColor: BRAND_NAVY,
         fontFamily: FONT_HELVETICA,
         fontSize: 13,
+        photoHeight: 200, // px — set to 0 for natural/auto aspect ratio
+        showSizes: true, // toggle building/land size display on each tile
         listings: [
           {
             id: nextId(),
@@ -542,6 +544,7 @@ function blockToHtml(block) {
     case "listings": {
       const iconSize = 14;
       const sizeChips = (l) => {
+        if (!p.showSizes) return "";
         const chips = [];
         if (l.buildingSize) {
           chips.push(`<span style="display:inline-block;margin-right:14px;"><img src="${ICON_BUILDING_AREA_SRC}" width="${iconSize}" height="${iconSize}" style="width:${iconSize}px;height:${iconSize}px;vertical-align:middle;margin-right:4px;" alt="" />${escapeHtml(l.buildingSize)}</span>`);
@@ -551,6 +554,9 @@ function blockToHtml(block) {
         }
         return chips.join("");
       };
+      const photoStyle = p.photoHeight > 0
+        ? `width:100%;height:${p.photoHeight}px;display:block;object-fit:cover;`
+        : `width:100%;display:block;`;
       const cardInner = (l) => `
         <a href="${l.url}" style="text-decoration:none;font-family:${p.fontFamily};font-size:${p.fontSize + 3}px;font-weight:700;color:${p.textColor};display:block;margin-bottom:8px;">${escapeHtml(l.address)}</a>
         ${sizeChips(l) ? `<div style="font-family:${p.fontFamily};font-size:${p.fontSize}px;color:${p.textColor};opacity:0.75;">${sizeChips(l)}</div>` : ""}`;
@@ -559,7 +565,7 @@ function blockToHtml(block) {
       if (p.columns === 1 && p.tileLayout === "side-by-side") {
         bodyHtml = p.listings.map((l) => `
           <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${p.cardBg};border-radius:6px;margin-bottom:16px;"><tr>
-            <td style="width:38%;vertical-align:top;"><a href="${l.url}"><img src="${l.photo}" alt="${escapeHtml(l.photoAlt)}" style="width:100%;display:block;border-radius:6px 0 0 6px;" /></a></td>
+            <td style="width:38%;vertical-align:top;"><a href="${l.url}"><img src="${l.photo}" alt="${escapeHtml(l.photoAlt)}" style="${photoStyle}border-radius:6px 0 0 6px;" /></a></td>
             <td style="width:62%;vertical-align:top;padding:16px;">${cardInner(l)}</td>
           </tr></table>`).join("");
       } else {
@@ -568,7 +574,7 @@ function blockToHtml(block) {
         const tileCell = (l) => `
           <td style="width:${cellPct}%;vertical-align:top;padding:8px;">
             <div style="background:${p.cardBg};border-radius:6px;">
-              <a href="${l.url}"><img src="${l.photo}" alt="${escapeHtml(l.photoAlt)}" style="width:100%;display:block;border-radius:6px 6px 0 0;" /></a>
+              <a href="${l.url}"><img src="${l.photo}" alt="${escapeHtml(l.photoAlt)}" style="${photoStyle}border-radius:6px 6px 0 0;" /></a>
               <div style="padding:14px;">${cardInner(l)}</div>
             </div>
           </td>`;
@@ -914,7 +920,7 @@ function VariableChips({ onInsert }) {
   );
 }
 
-function PropertyPanel({ block, updateProps, openLibrary }) {
+function PropertyPanel({ block, updateProps, openLibrary, openListingsPicker }) {
   const set = (patch) => updateProps(block.id, patch);
 
   const appendToContent = (token) => set({ content: (block.props.content || "") + token });
@@ -1382,6 +1388,14 @@ function PropertyPanel({ block, updateProps, openLibrary }) {
                 options={[{ value: "stacked", label: "Photo on top" }, { value: "side-by-side", label: "Photo beside text" }]} />
             </Field>
           )}
+          <Field label={`Tile photo height — ${block.props.photoHeight > 0 ? `${block.props.photoHeight}px` : "Auto"}`}>
+            <input type="range" min="0" max="400" step="10" value={block.props.photoHeight}
+              onChange={(e) => set({ photoHeight: Number(e.target.value) })} style={{ width: "100%" }} />
+          </Field>
+          <Field label="Show building/land size">
+            <SegButton value={block.props.showSizes} onChange={(v) => set({ showSizes: v })}
+              options={[{ value: true, label: "On" }, { value: false, label: "Off" }]} />
+          </Field>
           <Field label="Section background"><ColorInput value={block.props.bg} onChange={(v) => set({ bg: v })} /></Field>
           <Field label="Card background"><ColorInput value={block.props.cardBg} onChange={(v) => set({ cardBg: v })} /></Field>
           <FontControls
@@ -1394,6 +1408,10 @@ function PropertyPanel({ block, updateProps, openLibrary }) {
           />
 
           <div style={{ fontSize: 11, fontWeight: 700, color: accent, textTransform: "uppercase", letterSpacing: 0.4, margin: "20px 0 10px" }}>Listings</div>
+          <button onClick={() => openListingsPicker(block.id)}
+            style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "9px 0", marginBottom: 8, borderRadius: 6, border: "none", background: ink, color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+            <ClipboardCheck size={13} /> Select from system listings
+          </button>
           {block.props.listings.map((l, i) => (
             <div key={l.id} style={{ border: `1px solid ${border}`, borderRadius: 8, padding: 10, marginBottom: 10 }}>
               <div style={{ display: "flex", gap: 8, marginBottom: 8, alignItems: "center" }}>
@@ -1436,7 +1454,7 @@ function PropertyPanel({ block, updateProps, openLibrary }) {
           ))}
           <button onClick={addListing}
             style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "8px 0", borderRadius: 6, border: `1px dashed ${border}`, background: "#fff", color: inkSoft, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
-            <Plus size={13} /> Add listing
+            <Plus size={13} /> Add a blank listing manually
           </button>
         </>
       );
@@ -1793,9 +1811,12 @@ function BlockPreview({ block }) {
       const cardInner = (l) => (
         <>
           <div style={{ fontFamily: p.fontFamily, fontSize: p.fontSize + 3, fontWeight: 700, color: p.textColor, marginBottom: 8 }}>{l.address}</div>
-          {(l.buildingSize || l.landSize) && sizeChips(l)}
+          {p.showSizes && (l.buildingSize || l.landSize) && sizeChips(l)}
         </>
       );
+      const photoImgStyle = p.photoHeight > 0
+        ? { width: "100%", height: p.photoHeight, display: "block", objectFit: "cover" }
+        : { width: "100%", display: "block" };
       const sideBySide = p.columns === 1 && p.tileLayout === "side-by-side";
       return (
         <div>
@@ -1811,7 +1832,7 @@ function BlockPreview({ block }) {
                 {p.listings.map((l) => (
                   <div key={l.id} style={{ background: p.cardBg, borderRadius: 6, overflow: "hidden", display: "flex" }}>
                     <div style={{ flex: "0 0 38%" }}>
-                      <img src={l.photo} alt={l.photoAlt} onError={handleImgError} draggable={false} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+                      <img src={l.photo} alt={l.photoAlt} onError={handleImgError} draggable={false} style={{ ...photoImgStyle, height: p.photoHeight > 0 ? p.photoHeight : "100%" }} />
                     </div>
                     <div style={{ flex: "0 0 62%", padding: 16 }}>{cardInner(l)}</div>
                   </div>
@@ -1821,7 +1842,7 @@ function BlockPreview({ block }) {
               <div style={{ display: "grid", gridTemplateColumns: `repeat(${p.columns}, 1fr)`, gap: 16 }}>
                 {p.listings.map((l) => (
                   <div key={l.id} style={{ background: p.cardBg, borderRadius: 6, overflow: "hidden" }}>
-                    <img src={l.photo} alt={l.photoAlt} onError={handleImgError} draggable={false} style={{ width: "100%", display: "block" }} />
+                    <img src={l.photo} alt={l.photoAlt} onError={handleImgError} draggable={false} style={photoImgStyle} />
                     <div style={{ padding: 14 }}>{cardInner(l)}</div>
                   </div>
                 ))}
@@ -2017,6 +2038,46 @@ export default function NewsletterBuilder() {
   const [listingsImporting, setListingsImporting] = useState(false);
   const [listingsImportNote, setListingsImportNote] = useState(null);
   const listingsCsvInputRef = useRef(null);
+
+  // --- Listings Grid checkbox picker: bulk-add real system listings into a
+  // specific Listings Grid block's tile array in one go ---
+  const [listingsPickerOpen, setListingsPickerOpen] = useState(false);
+  const [listingsPickerBlockId, setListingsPickerBlockId] = useState(null);
+  const [listingsPickerChecked, setListingsPickerChecked] = useState(() => new Set());
+
+  const openListingsPicker = (blockId) => {
+    setListingsPickerBlockId(blockId);
+    setListingsPickerChecked(new Set());
+    setListingsPickerOpen(true);
+  };
+
+  const toggleListingsPickerChecked = (id) => {
+    setListingsPickerChecked((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const applyListingsPickerSelection = () => {
+    const targetBlock = blocks.find((b) => b.id === listingsPickerBlockId);
+    if (!targetBlock) { setListingsPickerOpen(false); return; }
+    const existingSourceIds = new Set((targetBlock.props.listings || []).map((l) => l.sourceListingId).filter(Boolean));
+    const newTiles = listings
+      .filter((l) => listingsPickerChecked.has(l.id) && !existingSourceIds.has(l.id))
+      .map((l) => ({
+        id: nextId(),
+        sourceListingId: l.id, // tracks which system listing this came from, so it shows pre-checked next time
+        photo: l.photos?.[0] || "https://placehold.co/500x400/EEF0F3/171B21?text=No+Photo",
+        photoAlt: l.address,
+        address: l.address,
+        buildingSize: l.buildingSize || "",
+        landSize: l.landSize || "",
+        url: l.url || "",
+      }));
+    updateProps(listingsPickerBlockId, { listings: [...(targetBlock.props.listings || []), ...newTiles] });
+    setListingsPickerOpen(false);
+  };
 
   const loadListings = useCallback(async () => {
     if (!adminToken) { setListingsLoading(false); return; }
@@ -2541,7 +2602,7 @@ export default function NewsletterBuilder() {
               <div style={{ fontSize: 11, fontWeight: 700, color: accent, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 14 }}>
                 {selected.type} block
               </div>
-              <PropertyPanel block={selected} updateProps={updateProps} openLibrary={openLibrary} />
+              <PropertyPanel block={selected} updateProps={updateProps} openLibrary={openLibrary} openListingsPicker={openListingsPicker} />
             </>
           ) : (
             <div style={{ fontSize: 13, color: "#9AA2AC", marginTop: 8 }}>Select a block to edit its properties.</div>
@@ -2703,6 +2764,72 @@ export default function NewsletterBuilder() {
                   </div>
                 </div>
               ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Listings Grid checkbox picker modal */}
+      {listingsPickerOpen && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(23,27,33,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50 }}
+          onClick={() => setListingsPickerOpen(false)}>
+          <div onClick={(e) => e.stopPropagation()}
+            style={{ background: "#fff", borderRadius: 10, width: 620, maxWidth: "92vw", maxHeight: "85vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+            <div style={{ display: "flex", alignItems: "center", padding: "14px 18px", borderBottom: `1px solid ${border}` }}>
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 700 }}>Select listings to add</div>
+                <div style={{ fontSize: 11, color: inkSoft, marginTop: 2 }}>Tick as many as you like, then add them all at once</div>
+              </div>
+              <div style={{ flex: 1 }} />
+              <button onClick={() => setListingsPickerOpen(false)} style={{ border: "none", background: "none", cursor: "pointer", color: inkSoft }}>
+                <X size={18} />
+              </button>
+            </div>
+
+            <div style={{ padding: 18, overflowY: "auto", flex: 1 }}>
+              {!adminToken ? (
+                <div style={{ fontSize: 13, color: "#9AA2AC", textAlign: "center", padding: "30px 0" }}>
+                  Enter your admin token (top right) to load listings.
+                </div>
+              ) : listingsLoading ? (
+                <div style={{ fontSize: 13, color: "#9AA2AC", textAlign: "center", padding: "30px 0" }}>Loading listings…</div>
+              ) : listings.length === 0 ? (
+                <div style={{ fontSize: 13, color: "#9AA2AC", textAlign: "center", padding: "30px 0" }}>
+                  No listings in the system yet — pull some in via Zapier, or use "Populate from listing" to seed sample ones.
+                </div>
+              ) : (
+                listings.map((listing) => {
+                  const checked = listingsPickerChecked.has(listing.id);
+                  return (
+                    <label key={listing.id}
+                      style={{ display: "flex", gap: 12, alignItems: "center", border: `1px solid ${checked ? accent : border}`, background: checked ? accentSoft : "#fff", borderRadius: 8, padding: 10, marginBottom: 8, cursor: "pointer" }}>
+                      <input type="checkbox" checked={checked} onChange={() => toggleListingsPickerChecked(listing.id)} style={{ flexShrink: 0, width: 16, height: 16 }} />
+                      <img src={listing.photos?.[0]} alt={listing.address} onError={handleImgError}
+                        style={{ width: 56, height: 44, objectFit: "cover", borderRadius: 4, flexShrink: 0 }} />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{listing.address}</div>
+                        <div style={{ fontSize: 11, color: "#9AA2AC", marginTop: 2 }}>
+                          {listing.propertyType} · For {listing.saleOrRental === "Rental" ? "Lease" : "Sale"} · {listing.price}
+                        </div>
+                      </div>
+                    </label>
+                  );
+                })
+              )}
+            </div>
+
+            <div style={{ display: "flex", gap: 10, padding: 16, borderTop: `1px solid ${border}` }}>
+              <div style={{ flex: 1, display: "flex", alignItems: "center", fontSize: 12, color: inkSoft }}>
+                {listingsPickerChecked.size} selected
+              </div>
+              <button onClick={() => setListingsPickerOpen(false)}
+                style={{ padding: "9px 16px", borderRadius: 6, border: `1px solid ${border}`, background: "#fff", color: inkSoft, fontWeight: 600, fontSize: 13, cursor: "pointer" }}>
+                Cancel
+              </button>
+              <button onClick={applyListingsPickerSelection} disabled={listingsPickerChecked.size === 0}
+                style={{ padding: "9px 16px", borderRadius: 6, border: "none", background: ink, color: "#fff", fontWeight: 600, fontSize: 13, cursor: listingsPickerChecked.size === 0 ? "default" : "pointer", opacity: listingsPickerChecked.size === 0 ? 0.5 : 1 }}>
+                Add {listingsPickerChecked.size || ""} listing{listingsPickerChecked.size === 1 ? "" : "s"}
+              </button>
             </div>
           </div>
         </div>

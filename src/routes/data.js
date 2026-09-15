@@ -117,6 +117,25 @@ function buildAgentsFromRexColumns(row) {
   return agents;
 }
 
+// Builds the real prorealty.com.au listing page URL from Rex's CSV columns.
+// Confirmed against 3 real live examples:
+//   commercial_rental-R2-5255593-north-haven
+//   commercial_sale-R2-5043003-hawthorn
+//   commercial_sale-R2-4759676-hindmarsh
+// The number is the CSV's "id" column (NOT "property_id" — those are
+// different numbers entirely, e.g. id 5255593 vs property_id 18454251 for
+// the same listing). "R2" appears to be a fixed constant across categories.
+// Only Commercial Sale/Rental are confirmed with real examples — Residential
+// and Land listings should use the same lowercase+underscore pattern based
+// on "listing_category", but haven't been spot-checked against a live URL.
+function buildListingUrl(row) {
+  const id = (row["id"] || "").trim();
+  const categorySlug = (row["listing_category"] || "").trim().toLowerCase().replace(/\s+/g, "_");
+  const suburbSlug = (row["address.suburb_or_town"] || row["address.locality"] || "").trim().toLowerCase().replace(/\s+/g, "-");
+  if (!id || !categorySlug || !suburbSlug) return "";
+  return `https://prorealty.com.au/listings/${categorySlug}-R2-${id}-${suburbSlug}`;
+}
+
 router.post("/listings/import-csv", upload.single("file"), (req, res) => {
   if (!req.file) return res.status(400).json({ error: "No file uploaded (expected field name 'file')" });
 
@@ -177,6 +196,7 @@ router.post("/listings/import-csv", upload.single("file"), (req, res) => {
       price: (row.price || "").trim() || buildPriceFromRexFields(row),
       buildingSize: (row.buildingsize || "").trim() || formatArea(row["attr.buildarea"], row["attr.buildarea_unit"]),
       landSize: (row.landsize || "").trim() || formatArea(row["attr.landarea"], row["attr.landarea_unit"]),
+      url: (row.url || "").trim() || buildListingUrl(row),
       photos,
       agents,
     };
