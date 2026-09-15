@@ -49,9 +49,13 @@ router.get("/", (req, res) => {
  */
 router.post("/", upload.array("files", 20), async (req, res) => {
   const saved = [];
+  // Uploaded files need an ABSOLUTE url (not just "/uploads/xxx.jpg") — these
+  // URLs end up in exported HTML pasted into an external CRM to send, where
+  // there's no "current page" for a relative path to resolve against.
+  const origin = (process.env.BASE_URL || `${req.protocol}://${req.get("host")}`).replace(/\/$/, "");
 
   for (const file of req.files || []) {
-    const url = `/uploads/${file.filename}`;
+    const url = `${origin}/uploads/${file.filename}`;
     const info = db
       .prepare("INSERT INTO images (name, filename, url) VALUES (?, ?, ?)")
       .run(file.originalname, file.filename, url);

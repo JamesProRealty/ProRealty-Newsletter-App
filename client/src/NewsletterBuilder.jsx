@@ -374,14 +374,22 @@ function makeBlock(type) {
 // Branded header banners and stat icons — served as real files by the
 // backend (see src/routes/data.js seed-brand-assets) rather than embedded
 // as base64, so they don't bloat sent emails or get clipped by Gmail.
-const HEADER_BANNER_SALE = "/uploads/brand-header-for-sale.jpg";
-const HEADER_BANNER_LEASE = "/uploads/brand-header-for-lease.jpg";
-const ICON_LEASE_SRC = "/uploads/icon-lease.png";
-const ICON_ZONING_SRC = "/uploads/icon-zoning.png";
-const ICON_PARKING_SRC = "/uploads/icon-parking.png";
-const ICON_INCOME_SRC = "/uploads/icon-income.png";
-const ICON_LAND_AREA_SRC = "/uploads/icon-land-area.png";
-const ICON_BUILDING_AREA_SRC = "/uploads/icon-building-area.png";
+//
+// Built as ABSOLUTE URLs (not "/uploads/...") using the app's own live
+// address. This matters because the exported HTML gets pasted into an
+// external CRM to actually send — a relative path only resolves against
+// "the current page", which doesn't exist once the HTML is sitting in an
+// email; without the full domain, every one of these images would just be
+// broken in the real sent email even though they look fine in the builder.
+const ASSET_ORIGIN = typeof window !== "undefined" && window.location ? window.location.origin : "";
+const HEADER_BANNER_SALE = `${ASSET_ORIGIN}/uploads/brand-header-for-sale.jpg`;
+const HEADER_BANNER_LEASE = `${ASSET_ORIGIN}/uploads/brand-header-for-lease.jpg`;
+const ICON_LEASE_SRC = `${ASSET_ORIGIN}/uploads/icon-lease.png`;
+const ICON_ZONING_SRC = `${ASSET_ORIGIN}/uploads/icon-zoning.png`;
+const ICON_PARKING_SRC = `${ASSET_ORIGIN}/uploads/icon-parking.png`;
+const ICON_INCOME_SRC = `${ASSET_ORIGIN}/uploads/icon-income.png`;
+const ICON_LAND_AREA_SRC = `${ASSET_ORIGIN}/uploads/icon-land-area.png`;
+const ICON_BUILDING_AREA_SRC = `${ASSET_ORIGIN}/uploads/icon-building-area.png`;
 
 const STARTER_BLOCKS = [
   makeBlock("navbar"),
@@ -424,6 +432,14 @@ function chunk(arr, size) {
   const out = [];
   for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
   return out;
+}
+
+// Strips a trailing " STATE POSTCODE" (e.g. " SA 5018") off an Australian
+// address for compact display — used in the Listings Grid tiles, where the
+// full address is redundant/long for a small card. Leaves the address
+// untouched if it doesn't end in that exact pattern, rather than guessing.
+function shortAddress(address = "") {
+  return address.replace(/\s+[A-Z]{2,3}\s+\d{4}$/, "").trim();
 }
 
 function blockToHtml(block) {
@@ -558,7 +574,7 @@ function blockToHtml(block) {
         ? `width:100%;height:${p.photoHeight}px;display:block;object-fit:cover;`
         : `width:100%;display:block;`;
       const cardInner = (l) => `
-        <a href="${l.url}" style="text-decoration:none;font-family:${p.fontFamily};font-size:${p.fontSize + 3}px;font-weight:700;color:${p.textColor};display:block;margin-bottom:8px;">${escapeHtml(l.address)}</a>
+        <a href="${l.url}" style="text-decoration:none;font-family:${p.fontFamily};font-size:${p.fontSize + 3}px;font-weight:700;color:${p.textColor};display:block;margin-bottom:8px;">${escapeHtml(shortAddress(l.address))}</a>
         ${sizeChips(l) ? `<div style="font-family:${p.fontFamily};font-size:${p.fontSize}px;color:${p.textColor};opacity:0.75;">${sizeChips(l)}</div>` : ""}`;
 
       let bodyHtml;
@@ -659,7 +675,7 @@ function blockToHtml(block) {
 
 function buildFullHtml(blocks, templateName) {
   const rows = blocks.map(blockToHtml).join("\n");
-  return `<!DOCTYPE html>
+  let html = `<!DOCTYPE html>
 <html>
   <head>
     <meta charset="utf-8" />
@@ -677,6 +693,15 @@ function buildFullHtml(blocks, templateName) {
     </table>
   </body>
 </html>`;
+
+  // Safety net: catches any image still referenced by a relative "/uploads/..."
+  // path (e.g. photos uploaded before URLs were made absolute) and fixes it
+  // up at export time too — this HTML is meant to be pasted into an external
+  // CRM to send, where a relative path has nothing to resolve against.
+  if (ASSET_ORIGIN) {
+    html = html.replace(/(["'(])\/uploads\//g, `$1${ASSET_ORIGIN}/uploads/`);
+  }
+  return html;
 }
 
 // ---------------------------------------------------------------------------
@@ -1810,7 +1835,7 @@ function BlockPreview({ block }) {
       );
       const cardInner = (l) => (
         <>
-          <div style={{ fontFamily: p.fontFamily, fontSize: p.fontSize + 3, fontWeight: 700, color: p.textColor, marginBottom: 8 }}>{l.address}</div>
+          <div style={{ fontFamily: p.fontFamily, fontSize: p.fontSize + 3, fontWeight: 700, color: p.textColor, marginBottom: 8 }}>{shortAddress(l.address)}</div>
           {p.showSizes && (l.buildingSize || l.landSize) && sizeChips(l)}
         </>
       );
@@ -2164,11 +2189,17 @@ export default function NewsletterBuilder() {
   // Registers external listing/agent photo URLs into the shared image library
   // (server dedupes against what's already there by URL) so they show up as
   // normal library picks everywhere, not just on the block they were applied to.
+  // Always returns an array the SAME LENGTH as the input, in the SAME order —
+  // with null at any position that had no URL to begin with — so callers that
+  // need to match results back to a specific agent/photo by index (not just
+  // filter for "any registered photo") get the right one at the right position.
   const registerExternalPhotosToLibrary = async (urls, label) => {
-    const cleanUrls = (Array.isArray(urls) ? urls : []).filter(Boolean);
-    if (cleanUrls.length === 0) return [];
+    const urlList = Array.isArray(urls) ? urls : [];
+    const cleanUrls = urlList.filter(Boolean);
+    if (cleanUrls.length === 0) return urlList.map(() => null);
     const form = new FormData();
     form.append("urls", JSON.stringify(cleanUrls.map((url) => ({ url, name: label }))));
+    let byUrl;
     try {
       const saved = await apiFetch("/api/images", adminToken, { method: "POST", body: form });
       setImageLibrary((prev) => {
@@ -2178,12 +2209,12 @@ export default function NewsletterBuilder() {
       });
       // Server skips URLs it already had; map each requested url back to
       // either the freshly-saved row or one already in the library.
-      const byUrl = new Map([...saved, ...imageLibrary].map((img) => [img.url, img]));
-      return cleanUrls.map((url) => byUrl.get(url) || { url, name: label });
+      byUrl = new Map([...saved, ...imageLibrary].map((img) => [img.url, img]));
     } catch {
       // Non-fatal — still usable for this session via the raw URL even if registration failed
-      return cleanUrls.map((url) => ({ url, name: label }));
+      byUrl = new Map();
     }
+    return urlList.map((url) => (url ? byUrl.get(url) || { url, name: label } : null));
   };
 
   const applyListing = async (listing) => {
@@ -2201,7 +2232,8 @@ export default function NewsletterBuilder() {
       }
 
       // Photos: register into the shared library, then apply to the first Image block
-      const registeredPhotos = await registerExternalPhotosToLibrary(listing.photos, listing.address);
+      const registeredPhotosRaw = await registerExternalPhotosToLibrary(listing.photos, listing.address);
+      const registeredPhotos = registeredPhotosRaw.filter(Boolean); // Image block just wants a compact list, not positional alignment
       const imageBlock = blocks.find((b) => b.type === "image");
       if (imageBlock && registeredPhotos.length > 0) {
         if (registeredPhotos.length >= 3) {
