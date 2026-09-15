@@ -2083,7 +2083,7 @@ export default function NewsletterBuilder() {
   // (server dedupes against what's already there by URL) so they show up as
   // normal library picks everywhere, not just on the block they were applied to.
   const registerExternalPhotosToLibrary = async (urls, label) => {
-    const cleanUrls = urls.filter(Boolean);
+    const cleanUrls = (Array.isArray(urls) ? urls : []).filter(Boolean);
     if (cleanUrls.length === 0) return [];
     const form = new FormData();
     form.append("urls", JSON.stringify(cleanUrls.map((url) => ({ url, name: label }))));
@@ -2105,62 +2105,66 @@ export default function NewsletterBuilder() {
   };
 
   const applyListing = async (listing) => {
-    // Header: image-mode headers swap to the matching branded banner;
-    // text-mode headers get "For Sale"/"For Lease" + the address as before.
-    const headerBlock = blocks.find((b) => b.type === "header");
-    if (headerBlock) {
-      const variant = listing.saleOrRental === "Rental" ? "lease" : "sale";
-      if (headerBlock.props.mode === "image") {
-        updateProps(headerBlock.id, { activeVariant: variant });
-      } else {
-        updateProps(headerBlock.id, { title: `For ${variant === "lease" ? "Lease" : "Sale"}`, subtitle: listing.address });
+    try {
+      // Header: image-mode headers swap to the matching branded banner;
+      // text-mode headers get "For Sale"/"For Lease" + the address as before.
+      const headerBlock = blocks.find((b) => b.type === "header");
+      if (headerBlock) {
+        const variant = listing.saleOrRental === "Rental" ? "lease" : "sale";
+        if (headerBlock.props.mode === "image") {
+          updateProps(headerBlock.id, { activeVariant: variant });
+        } else {
+          updateProps(headerBlock.id, { title: `For ${variant === "lease" ? "Lease" : "Sale"}`, subtitle: listing.address });
+        }
       }
-    }
 
-    // Photos: register into the shared library, then apply to the first Image block
-    const registeredPhotos = await registerExternalPhotosToLibrary(listing.photos, listing.address);
-    const imageBlock = blocks.find((b) => b.type === "image");
-    if (imageBlock && registeredPhotos.length > 0) {
-      if (registeredPhotos.length >= 3) {
-        updateProps(imageBlock.id, {
-          layout: "hero2",
-          photos: [
-            { id: nextId(), src: registeredPhotos[0].url, alt: listing.address },
-            { id: nextId(), src: registeredPhotos[1].url, alt: listing.address },
-            { id: nextId(), src: registeredPhotos[2].url, alt: listing.address },
-          ],
-        });
-      } else {
-        updateProps(imageBlock.id, {
-          layout: "single",
-          photos: [{ id: nextId(), src: registeredPhotos[0].url, alt: listing.address }],
-        });
+      // Photos: register into the shared library, then apply to the first Image block
+      const registeredPhotos = await registerExternalPhotosToLibrary(listing.photos, listing.address);
+      const imageBlock = blocks.find((b) => b.type === "image");
+      if (imageBlock && registeredPhotos.length > 0) {
+        if (registeredPhotos.length >= 3) {
+          updateProps(imageBlock.id, {
+            layout: "hero2",
+            photos: [
+              { id: nextId(), src: registeredPhotos[0].url, alt: listing.address },
+              { id: nextId(), src: registeredPhotos[1].url, alt: listing.address },
+              { id: nextId(), src: registeredPhotos[2].url, alt: listing.address },
+            ],
+          });
+        } else {
+          updateProps(imageBlock.id, {
+            layout: "single",
+            photos: [{ id: nextId(), src: registeredPhotos[0].url, alt: listing.address }],
+          });
+        }
       }
-    }
 
-    // Agents: pulled straight from the listing's agent data
-    const agentsBlock = blocks.find((b) => b.type === "agents");
-    if (agentsBlock && listing.agents?.length) {
-      const registeredAgentPhotos = await registerExternalPhotosToLibrary(
-        listing.agents.map((a) => a.photoSrc),
-        `${listing.address} — agent`
-      );
-      const newAgents = listing.agents.map((a, i) => ({
-        id: nextId(),
-        photoSrc: registeredAgentPhotos[i]?.url || a.photoSrc,
-        photoPosY: 50,
-        name: a.name,
-        role: a.role,
-        phone: a.phone,
-        email: a.email,
-      }));
-      updateProps(agentsBlock.id, { agents: newAgents, columns: Math.min(Math.max(newAgents.length, 1), 3) });
-    }
+      // Agents: pulled straight from the listing's agent data
+      const agentsBlock = blocks.find((b) => b.type === "agents");
+      if (agentsBlock && listing.agents?.length) {
+        const registeredAgentPhotos = await registerExternalPhotosToLibrary(
+          listing.agents.map((a) => a.photoSrc),
+          `${listing.address} — agent`
+        );
+        const newAgents = listing.agents.map((a, i) => ({
+          id: nextId(),
+          photoSrc: registeredAgentPhotos[i]?.url || a.photoSrc,
+          photoPosY: 50,
+          name: a.name,
+          role: a.role,
+          phone: a.phone,
+          email: a.email,
+        }));
+        updateProps(agentsBlock.id, { agents: newAgents, columns: Math.min(Math.max(newAgents.length, 1), 3) });
+      }
 
-    setEmailSubject(`For ${listing.saleOrRental === "Rental" ? "Lease" : "Sale"} — ${listing.address}`);
-    setListingModalOpen(false);
-    setPopulatedNote(`Populated from ${listing.address}`);
-    setTimeout(() => setPopulatedNote(null), 4000);
+      setEmailSubject(`For ${listing.saleOrRental === "Rental" ? "Lease" : "Sale"} — ${listing.address}`);
+      setListingModalOpen(false);
+      setPopulatedNote(`Populated from ${listing.address}`);
+      setTimeout(() => setPopulatedNote(null), 4000);
+    } catch (e) {
+      setListingsError(`Couldn't populate from that listing: ${e.message}`);
+    }
   };
 
   // --- Saved templates (real persistence via the backend) ---
@@ -2734,9 +2738,9 @@ export default function NewsletterBuilder() {
               </button>
               <div style={{ fontSize: 10.5, color: "#9AA2AC", marginTop: 6, lineHeight: 1.5 }}>
                 One-time backfill for listings that existed before Zapier was connected — Zapier only catches new
-                listings going forward. Expected columns: address (required), price, saleOrRental, propertyType,
-                photos, agent_name, agent_role, agent_phone, agent_email, agent_photo. For "photos", separate
-                multiple photo URLs in one cell with a semicolon (;).
+                listings going forward. Just export your listings from Rex and upload the file as-is — address,
+                price, property type, sale/rental, size, photos, and up to two agents are all read automatically
+                from Rex's own export format.
               </div>
               {listingsImportNote && (
                 <div style={{ fontSize: 12, color: "#2F7A4F", background: "#EAF6EE", borderRadius: 6, padding: "6px 10px", marginTop: 8 }}>{listingsImportNote}</div>

@@ -33,30 +33,111 @@ router.delete("/listings/:id", (req, res) => {
  * listings that already existed in Rex before the Zapier webhook was turned
  * on (Zapier only catches new events going forward, not historical ones).
  *
- * Expected CSV columns (header row required, case-insensitive):
- *   address, price, saleOrRental, propertyType, photos,
- *   agent_name, agent_role, agent_phone, agent_email, agent_photo
+ * Understands two formats:
  *
- * "photos" can hold multiple photo URLs in one cell — separate them with a
- * semicolon (;), e.g. "https://.../1.jpg;https://.../2.jpg". Only "address"
- * is required — everything else is optional and left blank if missing. Each
- * row becomes one listing with at most one agent; if a listing needs
- * multiple agents, add the rest via the builder afterward.
+ * 1. Rex's own native export (recommended — just export and upload as-is):
+ *    address.unit_number / street_number / street_name / suburb_or_town /
+ *    locality / state_or_region / postcode, property_category,
+ *    listing_category, listing_agents.1.name/email/mobile (and .2. for a
+ *    second agent), attr.buildarea/buildarea_unit, attr.landarea/landarea_unit,
+ *    listing.price_advertise_as (falls back to price_match_sale / price_match /
+ *    price_rent / archive.sale_lease_price if blank), images (comma-separated
+ *    URLs).
+ *
+ * 2. A simpler hand-built format, if you'd rather create the CSV yourself:
+ *    address, price, saleOrRental, propertyType, photos (semicolon-separated),
+ *    agent_name, agent_role, agent_phone, agent_email, agent_photo,
+ *    buildingSize, landSize
+ *
+ * Whichever columns are present get used — a plain "address" column always
+ * wins over Rex's split address.* columns, a plain "price" always wins over
+ * Rex's price fields, and so on. Only an address (either form) is required;
+ * rows missing it are skipped and reported back to you.
  */
+function buildAddressFromParts(row) {
+  const unit = (row["address.unit_number"] || "").trim();
+  const streetNumber = (row["address.street_number"] || "").trim();
+  const streetName = (row["address.street_name"] || "").trim();
+  const suburb = (row["address.suburb_or_town"] || row["address.locality"] || "").trim();
+  const state = (row["address.state_or_region"] || "").trim();
+  const postcode = (row["address.postcode"] || "").trim();
+
+  const streetPart = [unit ? `${unit}/${streetNumber}` : streetNumber, streetName].filter(Boolean).join(" ");
+  const localityPart = [suburb, state, postcode].filter(Boolean).join(" ");
+  return [streetPart, localityPart].filter(Boolean).join(", ");
+}
+
+// Rex splits price across several fields depending on sale/rental/land, and
+// "price_advertise_as" is the agent's own chosen display text (often
+// literally "Contact Agent" — that's intentional, not a placeholder to work
+// around, so it takes priority when present).
+function buildPriceFromRexFields(row) {
+  const advertiseAs = (row["listing.price_advertise_as"] || "").trim();
+  if (advertiseAs) return advertiseAs;
+  const numericRaw = (
+    row["listing.price_match_sale"] ||
+    row["listing.price_match"] ||
+    row["listing.price_rent"] ||
+    row["archive.sale_lease_price"] ||
+    ""
+  ).trim();
+  if (!numericRaw) return "";
+  const num = Number(numericRaw.replace(/[^0-9.]/g, ""));
+  if (Number.isNaN(num) || num === 0) return "";
+  return `$${num.toLocaleString("en-AU")}`;
+}
+
+function buildSaleOrRentalFromRexCategory(row) {
+  const category = (row["listing_category"] || "").trim();
+  return /rental/i.test(category) ? "Rental" : "Sale";
+}
+
+function formatArea(value, unit) {
+  const v = (value || "").trim();
+  if (!v) return "";
+  const u = (unit || "m2").trim();
+  return `${v}${u.toLowerCase() === "m2" ? "m²" : ` ${u}`}`;
+}
+
+// Rex exports up to two agents as listing_agents.1.* / listing_agents.2.*
+// (name/email/mobile only — no role or photo in the export).
+function buildAgentsFromRexColumns(row) {
+  const agents = [];
+  for (const n of [1, 2]) {
+    const name = (row[`listing_agents.${n}.name`] || "").trim();
+    if (!name) continue;
+    agents.push({
+      name,
+      role: "",
+      phone: (row[`listing_agents.${n}.mobile`] || "").trim(),
+      email: (row[`listing_agents.${n}.email`] || "").trim(),
+      photoSrc: "",
+    });
+  }
+  return agents;
+}
+
 router.post("/listings/import-csv", upload.single("file"), (req, res) => {
   if (!req.file) return res.status(400).json({ error: "No file uploaded (expected field name 'file')" });
 
   let records;
   try {
-    records = parse(req.file.buffer, { columns: true, skip_empty_lines: true, trim: true });
+    records = parse(req.file.buffer, { columns: true, skip_empty_lines: true, trim: true, bom: true });
   } catch (e) {
     return res.status(400).json({ error: `Couldn't read that as a CSV file: ${e.message}` });
   }
 
-  // Normalise headers to lowercase so "Address", "ADDRESS", "address" all work
+  // Normalise headers to lowercase EXCEPT Rex's dotted/numbered columns, which
+  // we need to match case-sensitively against their real export (e.g.
+  // "listing_agents.1.name"). Simple hand-built columns stay case-insensitive
+  // for convenience.
   const normalised = records.map((row) => {
     const out = {};
-    for (const key of Object.keys(row)) out[key.trim().toLowerCase()] = row[key];
+    for (const key of Object.keys(row)) {
+      const trimmedKey = key.trim();
+      out[trimmedKey] = row[key];
+      out[trimmedKey.toLowerCase()] = row[key];
+    }
     return out;
   });
 
@@ -65,30 +146,37 @@ router.post("/listings/import-csv", upload.single("file"), (req, res) => {
   const skipped = [];
 
   normalised.forEach((row, i) => {
-    const address = (row.address || "").trim();
+    const address = (row.address || "").trim() || buildAddressFromParts(row);
     if (!address) {
       skipped.push({ row: i + 2, reason: "Missing address" }); // +2: header row + 1-indexed
       return;
     }
-    const agents = [];
-    if ((row.agent_name || "").trim()) {
-      agents.push({
-        name: row.agent_name.trim(),
-        role: (row.agent_role || "").trim(),
-        phone: (row.agent_phone || "").trim(),
-        email: (row.agent_email || "").trim(),
-        photoSrc: normalizeUrl((row.agent_photo || "").trim()),
-      });
-    }
+
+    const agents = (row.agent_name || "").trim()
+      ? [{
+          name: row.agent_name.trim(),
+          role: (row.agent_role || "").trim(),
+          phone: (row.agent_phone || "").trim(),
+          email: (row.agent_email || "").trim(),
+          photoSrc: normalizeUrl((row.agent_photo || "").trim()),
+        }]
+      : buildAgentsFromRexColumns(row);
+
     const photos = (row.photos || "")
       .split(";")
       .map((url) => normalizeUrl(url.trim()))
       .filter(Boolean);
+    if (photos.length === 0 && row.images) {
+      photos.push(...row.images.split(",").map((url) => normalizeUrl(url.trim())).filter(Boolean));
+    }
+
     const listing = {
-      saleOrRental: (row.saleorrental || "Sale").trim(),
-      propertyType: (row.propertytype || "").trim(),
+      saleOrRental: (row.saleorrental || "").trim() || buildSaleOrRentalFromRexCategory(row),
+      propertyType: (row.propertytype || "").trim() || (row.property_category || "").trim(),
       address,
-      price: (row.price || "").trim(),
+      price: (row.price || "").trim() || buildPriceFromRexFields(row),
+      buildingSize: (row.buildingsize || "").trim() || formatArea(row["attr.buildarea"], row["attr.buildarea_unit"]),
+      landSize: (row.landsize || "").trim() || formatArea(row["attr.landarea"], row["attr.landarea_unit"]),
       photos,
       agents,
     };

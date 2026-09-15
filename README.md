@@ -169,17 +169,39 @@ right from the picker (each listing has a small trash icon), or ignore them.
 **Backfilling existing listings.** Zapier only catches *new* events going forward — it won't
 retroactively pull in listings that were published before the webhook was turned on. For that,
 use **Populate from listing → "Import listings from Rex CSV export"**: export your current
-listings from Rex to CSV, then upload it there. Expected columns (case-insensitive header row):
+listings from Rex and upload the file **as-is** — no editing needed. This was tested against a
+real Rex export and reads these columns natively:
+
+- **Address** — `address.unit_number` / `street_number` / `street_name` / `suburb_or_town` /
+  `locality` / `state_or_region` / `postcode`, combined into one address
+  (e.g. "Ground Floor/55 Grenfell Street, ADELAIDE SA 5000")
+- **Sale vs. lease** — derived from `listing_category` (anything containing "Rental" becomes
+  "Rental", everything else becomes "Sale")
+- **Property type** — `property_category` (Residential / Commercial / Land)
+- **Price** — `listing.price_advertise_as` if set (this is the agent's own chosen display
+  text — often literally "Contact Agent," which is intentional, not a placeholder), otherwise
+  falls back to whichever numeric price field is populated (`price_match_sale`, `price_match`,
+  `price_rent`, or `archive.sale_lease_price`), formatted as a dollar figure
+- **Size** — `attr.buildarea` / `attr.buildarea_unit` and `attr.landarea` / `attr.landarea_unit`
+- **Photos** — the `images` column (comma-separated URLs — Rex typically exports 10-20+ per listing)
+- **Agents** — `listing_agents.1.name` / `.email` / `.mobile`, and `listing_agents.2.*` for a
+  second agent if present
+
+**Prefer to build your own CSV instead?** These simpler columns work too, and take priority
+over the Rex-native ones above when present (case-insensitive header row):
 
 ```
-address, price, saleOrRental, propertyType, photos, agent_name, agent_role, agent_phone, agent_email, agent_photo
+address, price, saleOrRental, propertyType, buildingSize, landSize, photos,
+agent_name, agent_role, agent_phone, agent_email, agent_photo
 ```
 
-`photos` can hold multiple URLs in one cell — separate them with a semicolon (`;`), e.g.
-`https://.../1.jpg;https://.../2.jpg`. Only `address` is required — rows missing it are skipped
-and reported back to you. Each row becomes one listing with at most one agent; for listings
-needing multiple agents, add the rest via the builder's Agents block afterward. This hits
-`POST /api/listings/import-csv` (multipart, field name `file`) if you'd rather script it.
+`photos` in this simpler format uses a semicolon (`;`) to separate multiple URLs in one cell,
+e.g. `https://.../1.jpg;https://.../2.jpg` (Rex's own `images` column uses a comma instead,
+matching its native export).
+
+Only an address (via either format) is required — rows missing one are skipped and reported
+back to you rather than silently dropped. This hits `POST /api/listings/import-csv`
+(multipart, field name `file`) if you'd rather script it.
 
 **Brand assets (header banners + Property Stats icons).** The Header block's "Branded image"
 mode and the Property Stats block's default icons point at real files already included in
