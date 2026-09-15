@@ -1,13 +1,102 @@
 const express = require("express");
+const multer = require("multer");
+const { parse } = require("csv-parse/sync");
 const db = require("../db");
 const { requireAdminToken } = require("../middleware/auth");
+const { normalizeUrl } = require("../utils/urls");
 
 const router = express.Router();
 router.use(requireAdminToken);
 
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
+
 router.get("/listings", (req, res) => {
   const rows = db.prepare("SELECT id, external_id, data, created_at FROM listings ORDER BY id DESC LIMIT 100").all();
   res.json(rows.map((r) => ({ ...r, data: JSON.parse(r.data) })));
+});
+
+/**
+ * DELETE /api/listings/:id
+ * Removes a single listing row — useful for clearing out test/duplicate
+ * entries, or listings that have since sold/leased.
+ */
+router.delete("/listings/:id", (req, res) => {
+  const existing = db.prepare("SELECT id FROM listings WHERE id = ?").get(req.params.id);
+  if (!existing) return res.status(404).json({ error: "Not found" });
+  db.prepare("DELETE FROM listings WHERE id = ?").run(req.params.id);
+  res.json({ ok: true });
+});
+
+/**
+ * POST /api/listings/import-csv
+ * multipart/form-data, field name "file". One-time bulk backfill for
+ * listings that already existed in Rex before the Zapier webhook was turned
+ * on (Zapier only catches new events going forward, not historical ones).
+ *
+ * Expected CSV columns (header row required, case-insensitive):
+ *   address, price, saleOrRental, propertyType, photos,
+ *   agent_name, agent_role, agent_phone, agent_email, agent_photo
+ *
+ * "photos" can hold multiple photo URLs in one cell — separate them with a
+ * semicolon (;), e.g. "https://.../1.jpg;https://.../2.jpg". Only "address"
+ * is required — everything else is optional and left blank if missing. Each
+ * row becomes one listing with at most one agent; if a listing needs
+ * multiple agents, add the rest via the builder afterward.
+ */
+router.post("/listings/import-csv", upload.single("file"), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: "No file uploaded (expected field name 'file')" });
+
+  let records;
+  try {
+    records = parse(req.file.buffer, { columns: true, skip_empty_lines: true, trim: true });
+  } catch (e) {
+    return res.status(400).json({ error: `Couldn't read that as a CSV file: ${e.message}` });
+  }
+
+  // Normalise headers to lowercase so "Address", "ADDRESS", "address" all work
+  const normalised = records.map((row) => {
+    const out = {};
+    for (const key of Object.keys(row)) out[key.trim().toLowerCase()] = row[key];
+    return out;
+  });
+
+  const insert = db.prepare("INSERT INTO listings (external_id, data) VALUES (?, ?)");
+  const imported = [];
+  const skipped = [];
+
+  normalised.forEach((row, i) => {
+    const address = (row.address || "").trim();
+    if (!address) {
+      skipped.push({ row: i + 2, reason: "Missing address" }); // +2: header row + 1-indexed
+      return;
+    }
+    const agents = [];
+    if ((row.agent_name || "").trim()) {
+      agents.push({
+        name: row.agent_name.trim(),
+        role: (row.agent_role || "").trim(),
+        phone: (row.agent_phone || "").trim(),
+        email: (row.agent_email || "").trim(),
+        photoSrc: normalizeUrl((row.agent_photo || "").trim()),
+      });
+    }
+    const photos = (row.photos || "")
+      .split(";")
+      .map((url) => normalizeUrl(url.trim()))
+      .filter(Boolean);
+    const listing = {
+      saleOrRental: (row.saleorrental || "Sale").trim(),
+      propertyType: (row.propertytype || "").trim(),
+      address,
+      price: (row.price || "").trim(),
+      photos,
+      agents,
+    };
+    const info = insert.run(null, JSON.stringify(listing));
+    imported.push(info.lastInsertRowid);
+  });
+
+  res.status(201).json({ ok: true, imported: imported.length, skipped });
 });
 
 router.get("/contacts", (req, res) => {

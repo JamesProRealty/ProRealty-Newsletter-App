@@ -2,6 +2,7 @@ const express = require("express");
 const { nanoid } = require("nanoid");
 const db = require("../db");
 const { requireWebhookSecret } = require("../middleware/auth");
+const { normalizeListingPayload } = require("../utils/urls");
 
 const router = express.Router();
 router.use(requireWebhookSecret);
@@ -13,10 +14,11 @@ router.use(requireWebhookSecret);
  * listing should be turned into a newsletter.
  */
 router.post("/listing", (req, res) => {
-  const payload = req.body;
-  if (!payload || Object.keys(payload).length === 0) {
+  const raw = req.body;
+  if (!raw || Object.keys(raw).length === 0) {
     return res.status(400).json({ error: "Empty listing payload" });
   }
+  const payload = normalizeListingPayload(raw);
 
   const stmt = db.prepare(
     "INSERT INTO listings (external_id, data) VALUES (?, ?)"

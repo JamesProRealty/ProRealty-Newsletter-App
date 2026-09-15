@@ -164,7 +164,22 @@ section 6 below (campaigns already do this).
 builder, which calls `POST /api/dev/seed-listings` — inserts the same 3 mock listings used
 during prototyping directly into the real `listings` table, so you can test the whole flow
 before Zapier is connected. Safe to click more than once (just adds more rows); delete extras
-straight from the `listings` table if needed, or just ignore them.
+right from the picker (each listing has a small trash icon), or ignore them.
+
+**Backfilling existing listings.** Zapier only catches *new* events going forward — it won't
+retroactively pull in listings that were published before the webhook was turned on. For that,
+use **Populate from listing → "Import listings from Rex CSV export"**: export your current
+listings from Rex to CSV, then upload it there. Expected columns (case-insensitive header row):
+
+```
+address, price, saleOrRental, propertyType, photos, agent_name, agent_role, agent_phone, agent_email, agent_photo
+```
+
+`photos` can hold multiple URLs in one cell — separate them with a semicolon (`;`), e.g.
+`https://.../1.jpg;https://.../2.jpg`. Only `address` is required — rows missing it are skipped
+and reported back to you. Each row becomes one listing with at most one agent; for listings
+needing multiple agents, add the rest via the builder's Agents block afterward. This hits
+`POST /api/listings/import-csv` (multipart, field name `file`) if you'd rather script it.
 
 **Brand assets (header banners + Property Stats icons).** The Header block's "Branded image"
 mode and the Property Stats block's default icons point at real files already included in

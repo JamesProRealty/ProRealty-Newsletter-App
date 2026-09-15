@@ -2006,13 +2006,17 @@ export default function NewsletterBuilder() {
     setLibraryModalOpen(false);
   };
 
-  // --- Listings (real data, pulled in via Zapier -> /api/webhooks/listing) ---
+  // --- Listings (real data, pulled in via Zapier -> /api/webhooks/listing,
+  // or bulk-imported from a Rex CSV export for historical backfill) ---
   const [listings, setListings] = useState([]);
   const [listingsLoading, setListingsLoading] = useState(true);
   const [listingsError, setListingsError] = useState(null);
   const [listingModalOpen, setListingModalOpen] = useState(false);
   const [populatedNote, setPopulatedNote] = useState(null);
   const [seedingListings, setSeedingListings] = useState(false);
+  const [listingsImporting, setListingsImporting] = useState(false);
+  const [listingsImportNote, setListingsImportNote] = useState(null);
+  const listingsCsvInputRef = useRef(null);
 
   const loadListings = useCallback(async () => {
     if (!adminToken) { setListingsLoading(false); return; }
@@ -2044,6 +2048,34 @@ export default function NewsletterBuilder() {
       setListingsError(`Couldn't seed sample listings: ${e.message}`);
     } finally {
       setSeedingListings(false);
+    }
+  };
+
+  const deleteListing = async (id) => {
+    try {
+      await apiFetch(`/api/listings/${id}`, adminToken, { method: "DELETE" });
+      setListings((prev) => prev.filter((l) => l.id !== id));
+    } catch (e) {
+      setListingsError(`Couldn't delete that listing: ${e.message}`);
+    }
+  };
+
+  const importListingsCsv = async (file) => {
+    if (!adminToken) { setListingsError("Enter your admin token first (top right)."); return; }
+    setListingsImporting(true);
+    setListingsError(null);
+    setListingsImportNote(null);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const result = await apiFetch("/api/listings/import-csv", adminToken, { method: "POST", body: form });
+      await loadListings();
+      const skippedNote = result.skipped.length > 0 ? `, skipped ${result.skipped.length} row(s) missing an address` : "";
+      setListingsImportNote(`Imported ${result.imported} listing(s)${skippedNote}.`);
+    } catch (e) {
+      setListingsError(`Import failed: ${e.message}`);
+    } finally {
+      setListingsImporting(false);
     }
   };
 
@@ -2681,13 +2713,36 @@ export default function NewsletterBuilder() {
             <div style={{ display: "flex", alignItems: "center", padding: "14px 18px", borderBottom: `1px solid ${border}` }}>
               <div>
                 <div style={{ fontSize: 14, fontWeight: 700 }}>Populate from listing</div>
-                <div style={{ fontSize: 11, color: inkSoft, marginTop: 2 }}>Listings pulled in via Zapier — this is mock data for now</div>
+                <div style={{ fontSize: 11, color: inkSoft, marginTop: 2 }}>Listings pulled in via Zapier, or bulk-imported from a Rex CSV export</div>
               </div>
               <div style={{ flex: 1 }} />
               <button onClick={() => setListingModalOpen(false)} style={{ border: "none", background: "none", cursor: "pointer", color: inkSoft }}>
                 <X size={18} />
               </button>
             </div>
+
+            <div style={{ padding: "14px 18px", borderBottom: `1px solid ${border}` }}>
+              <input ref={listingsCsvInputRef} type="file" accept=".csv,text/csv" style={{ display: "none" }}
+                onChange={(e) => { if (e.target.files?.[0]) importListingsCsv(e.target.files[0]); e.target.value = ""; }} />
+              <button onClick={() => listingsCsvInputRef.current?.click()} disabled={listingsImporting || !adminToken}
+                style={{
+                  width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "10px 0",
+                  borderRadius: 6, border: `1px solid ${border}`, background: "#fff", color: inkSoft, fontSize: 12, fontWeight: 600,
+                  cursor: adminToken ? "pointer" : "default", opacity: listingsImporting ? 0.6 : 1,
+                }}>
+                <UploadCloud size={14} /> {listingsImporting ? "Importing…" : "Import listings from Rex CSV export"}
+              </button>
+              <div style={{ fontSize: 10.5, color: "#9AA2AC", marginTop: 6, lineHeight: 1.5 }}>
+                One-time backfill for listings that existed before Zapier was connected — Zapier only catches new
+                listings going forward. Expected columns: address (required), price, saleOrRental, propertyType,
+                photos, agent_name, agent_role, agent_phone, agent_email, agent_photo. For "photos", separate
+                multiple photo URLs in one cell with a semicolon (;).
+              </div>
+              {listingsImportNote && (
+                <div style={{ fontSize: 12, color: "#2F7A4F", background: "#EAF6EE", borderRadius: 6, padding: "6px 10px", marginTop: 8 }}>{listingsImportNote}</div>
+              )}
+            </div>
+
             <div style={{ padding: 18, overflowY: "auto", flex: 1 }}>
               {listingsError && (
                 <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 12, color: "#8A5A20", background: accentSoft, borderRadius: 6, padding: "8px 10px", marginBottom: 12 }}>
@@ -2735,12 +2790,16 @@ export default function NewsletterBuilder() {
                       </div>
                       <div style={{ fontSize: 13, fontWeight: 600 }}>{listing.address}</div>
                       <div style={{ fontSize: 11, color: "#9AA2AC", marginTop: 2 }}>
-                        {listing.photos?.length || 0} photos · {listing.agents?.map((a) => a.name).join(", ")}
+                        {listing.photos?.length || 0} photos · {listing.agents?.map((a) => a.name).join(", ") || "no agent"}
                       </div>
                     </div>
                     <button onClick={() => applyListing(listing)}
                       style={{ flexShrink: 0, fontSize: 12, fontWeight: 700, padding: "8px 14px", borderRadius: 6, border: "none", background: ink, color: "#fff", cursor: "pointer" }}>
                       Use this listing
+                    </button>
+                    <button onClick={() => deleteListing(listing.id)} title="Delete this listing"
+                      style={{ flexShrink: 0, border: "none", background: "none", cursor: "pointer", color: "#C0503D", padding: 4 }}>
+                      <Trash2 size={14} />
                     </button>
                   </div>
                 ))
