@@ -76,4 +76,23 @@ CREATE TABLE IF NOT EXISTS campaign_sends (
 );
 `);
 
+// Only enforced when external_id is actually set (a "partial" unique index) —
+// listings added manually through the builder, with no external_id at all,
+// are exempt and can coexist freely. This is what lets re-importing the same
+// CSV, or Zapier re-sending an updated listing, update the existing row
+// instead of creating a duplicate. Kept separate from the block above and
+// wrapped in try/catch: if any already-duplicated external_id values exist
+// from before this feature existed, creating the index would fail — and we'd
+// rather the app still start up (without the constraint, logging a warning)
+// than crash entirely on deploy. Run the dedupe endpoint (see routes/data.js)
+// to clean up old duplicates, then restart, and this will apply successfully.
+try {
+  db.exec(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_listings_external_id
+      ON listings(external_id) WHERE external_id IS NOT NULL;
+  `);
+} catch (e) {
+  console.warn("Could not create unique index on listings.external_id — likely pre-existing duplicate external_ids. Run POST /api/listings/dedupe, then restart the app. Continuing without the constraint for now.", e.message);
+}
+
 module.exports = db;

@@ -28,6 +28,58 @@ router.delete("/listings/:id", (req, res) => {
 });
 
 /**
+ * POST /api/listings/dedupe
+ * One-time cleanup for listings that were duplicated before this feature
+ * existed (e.g. uploading the same CSV export twice) — those rows have no
+ * external_id to match on. Groups primarily by the listing's URL, since
+ * that's built from Rex's own listing id and is a far more reliable match
+ * than the address: testing against a real export found multiple genuinely
+ * different listings (different Rex ids, different categories) sharing the
+ * exact same address — e.g. the same land parcel listed both for sale and
+ * for rent, or a commercial listing and a land listing at the same address.
+ * Address + sale/rental + property type is used only as a fallback for rows
+ * with no URL at all (e.g. older Zapier-sourced or manually-added listings).
+ * Keeps the newest row in each group (highest id) and deletes the rest.
+ * Safe to run more than once; it's a no-op once there's nothing left to merge.
+ */
+router.post("/listings/dedupe", (req, res) => {
+  const rows = db.prepare("SELECT id, data FROM listings ORDER BY id ASC").all();
+  const groups = new Map();
+  for (const row of rows) {
+    let key;
+    try {
+      const parsed = JSON.parse(row.data);
+      const url = (parsed.url || "").trim().toLowerCase();
+      if (url) {
+        key = `url:${url}`;
+      } else {
+        const address = (parsed.address || "").trim().toLowerCase();
+        if (!address) continue;
+        const saleOrRental = (parsed.saleOrRental || "").trim().toLowerCase();
+        const propertyType = (parsed.propertyType || "").trim().toLowerCase();
+        key = `addr:${address}|${saleOrRental}|${propertyType}`;
+      }
+    } catch {
+      continue;
+    }
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(row.id);
+  }
+
+  const toDelete = [];
+  for (const ids of groups.values()) {
+    if (ids.length > 1) toDelete.push(...ids.slice(0, -1)); // keep the last (newest) id, drop the rest
+  }
+
+  if (toDelete.length > 0) {
+    const placeholders = toDelete.map(() => "?").join(",");
+    db.prepare(`DELETE FROM listings WHERE id IN (${placeholders})`).run(...toDelete);
+  }
+
+  res.json({ ok: true, removed: toDelete.length, remaining: rows.length - toDelete.length });
+});
+
+/**
  * POST /api/listings/import-csv
  * multipart/form-data, field name "file". One-time bulk backfill for
  * listings that already existed in Rex before the Zapier webhook was turned
@@ -99,8 +151,24 @@ function formatArea(value, unit) {
   return `${v}${u.toLowerCase() === "m2" ? "m²" : ` ${u}`}`;
 }
 
+// Agent photos aren't in Rex's CSV export at all, and there's no reliable
+// way to build a URL for one automatically — ProRealty's site serves them
+// through signed, tamper-proof links (a JWT wrapping the real image + resize
+// params), not a predictable pattern based on the agent's name or ID. So
+// this is a maintained lookup table instead of a formula.
+//
+// To add or update an agent: open their listing page on prorealty.com.au,
+// right-click their photo, "Copy image address", and add the name/URL pair
+// below exactly as given — then redeploy. Matching is case-insensitive.
+const AGENT_PHOTO_LOOKUP = {
+  "chris maio": "https://au-mirage.cdns.rexsoftware.com/api/v1/output/eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdGciOltbNywiaHR0cHM6XC9cL2FwcC1zcG9rZS1zaXRlcy1hdS5zMy5hbWF6b25hd3MuY29tXC91cGxvYWRzXC9zaXRlc1wvNzE5XC8yMDI1XC8wOFwvQ2hyaXMtTWFpby5qcGciXSxbMTMsNzAwLDE0NDAsMl0sWzQsIndlYnAiLDkwXV0sImlzcyI6ImIwYzRkZTYwLTlhYzEtMTFlZC04ZjljLTVkOTg1MTAyOTE3NiJ9.Xy5wUUh2Nq9_Jafq5ERhrrJl3t9g_WuyBuSxXkLgwtw",
+  "james humphreys": "https://au-mirage.cdns.rexsoftware.com/api/v1/output/eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdGciOltbNywiaHR0cHM6XC9cL2FwcC1zcG9rZS1zaXRlcy1hdS5zMy5hbWF6b25hd3MuY29tXC91cGxvYWRzXC9zaXRlc1wvNzE5XC8yMDI1XC8wOFwvSmFtZXMtSHVtcGhyZXl3cy5qcGciXSxbMTMsMjAwLDE0NDAsMl0sWzQsIndlYnAiLDkwXV0sImlzcyI6ImIwYzRkZTYwLTlhYzEtMTFlZC04ZjljLTVkOTg1MTAyOTE3NiJ9.lykekV1XsAtPXT4_2pNdiuxb5fnYiJf4E4mDNTsMddQ",
+  "ryan humphreys": "https://au-mirage.cdns.rexsoftware.com/api/v1/output/eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdGciOltbNywiaHR0cHM6XC9cL2FwcC1zcG9rZS1zaXRlcy1hdS5zMy5hbWF6b25hd3MuY29tXC91cGxvYWRzXC9zaXRlc1wvNzE5XC8yMDI1XC8wOFwvUnlhbi1IdW1waHJleXMuanBnIl0sWzEzLDIwMCwxNDQwLDJdLFs0LCJ3ZWJwIiw5MF1dLCJpc3MiOiJiMGM0ZGU2MC05YWMxLTExZWQtOGY5Yy01ZDk4NTEwMjkxNzYifQ.bsDulLQIbGQw1qdrlJT2y6tRL2lkxFRnj5AaQKTxG88",
+};
+
 // Rex exports up to two agents as listing_agents.1.* / listing_agents.2.*
-// (name/email/mobile only — no role or photo in the export).
+// (name/email/mobile only — no role or photo in the export, hence the
+// lookup table above for photos).
 function buildAgentsFromRexColumns(row) {
   const agents = [];
   for (const n of [1, 2]) {
@@ -111,7 +179,7 @@ function buildAgentsFromRexColumns(row) {
       role: "",
       phone: (row[`listing_agents.${n}.mobile`] || "").trim(),
       email: (row[`listing_agents.${n}.email`] || "").trim(),
-      photoSrc: "",
+      photoSrc: AGENT_PHOTO_LOOKUP[name.toLowerCase()] || "",
     });
   }
   return agents;
@@ -160,8 +228,11 @@ router.post("/listings/import-csv", upload.single("file"), (req, res) => {
     return out;
   });
 
-  const insert = db.prepare("INSERT INTO listings (external_id, data) VALUES (?, ?)");
+  const findExisting = db.prepare("SELECT id FROM listings WHERE external_id = ?");
+  const updateExisting = db.prepare("UPDATE listings SET data = ?, created_at = datetime('now') WHERE id = ?");
+  const insertNew = db.prepare("INSERT INTO listings (external_id, data) VALUES (?, ?)");
   const imported = [];
+  const updated = [];
   const skipped = [];
 
   normalised.forEach((row, i) => {
@@ -200,11 +271,25 @@ router.post("/listings/import-csv", upload.single("file"), (req, res) => {
       photos,
       agents,
     };
-    const info = insert.run(null, JSON.stringify(listing));
+
+    // Rex's own "id" column (or a generic "external_id" column for a
+    // hand-built CSV) is what lets re-uploading the same export update
+    // existing listings in place instead of creating duplicates. Rows
+    // without either just always insert fresh, same as before.
+    const externalId = (row.id || row.external_id || "").trim() || null;
+    if (externalId) {
+      const existing = findExisting.get(externalId);
+      if (existing) {
+        updateExisting.run(JSON.stringify(listing), existing.id);
+        updated.push(existing.id);
+        return;
+      }
+    }
+    const info = insertNew.run(externalId, JSON.stringify(listing));
     imported.push(info.lastInsertRowid);
   });
 
-  res.status(201).json({ ok: true, imported: imported.length, skipped });
+  res.status(201).json({ ok: true, imported: imported.length, updated: updated.length, skipped });
 });
 
 router.get("/contacts", (req, res) => {

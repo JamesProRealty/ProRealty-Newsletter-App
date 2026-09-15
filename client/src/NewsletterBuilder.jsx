@@ -2132,11 +2132,32 @@ export default function NewsletterBuilder() {
       const result = await apiFetch("/api/listings/import-csv", adminToken, { method: "POST", body: form });
       await loadListings();
       const skippedNote = result.skipped.length > 0 ? `, skipped ${result.skipped.length} row(s) missing an address` : "";
-      setListingsImportNote(`Imported ${result.imported} listing(s)${skippedNote}.`);
+      setListingsImportNote(`Added ${result.imported} new, updated ${result.updated} existing${skippedNote}.`);
     } catch (e) {
       setListingsError(`Import failed: ${e.message}`);
     } finally {
       setListingsImporting(false);
+    }
+  };
+
+  const [dedupingListings, setDedupingListings] = useState(false);
+  const dedupeListings = async () => {
+    if (!adminToken) { setListingsError("Enter your admin token first (top right)."); return; }
+    setDedupingListings(true);
+    setListingsError(null);
+    setListingsImportNote(null);
+    try {
+      const result = await apiFetch("/api/listings/dedupe", adminToken, { method: "POST" });
+      await loadListings();
+      setListingsImportNote(
+        result.removed > 0
+          ? `Removed ${result.removed} duplicate listing(s) — ${result.remaining} remain.`
+          : "No duplicates found."
+      );
+    } catch (e) {
+      setListingsError(`Cleanup failed: ${e.message}`);
+    } finally {
+      setDedupingListings(false);
     }
   };
 
@@ -2217,6 +2238,12 @@ export default function NewsletterBuilder() {
           email: a.email,
         }));
         updateProps(agentsBlock.id, { agents: newAgents, columns: Math.min(Math.max(newAgents.length, 1), 3) });
+      }
+
+      // Button: points to the listing's real prorealty.com.au page, when known
+      const buttonBlock = blocks.find((b) => b.type === "button");
+      if (buttonBlock && listing.url) {
+        updateProps(buttonBlock.id, { url: listing.url });
       }
 
       setEmailSubject(`For ${listing.saleOrRental === "Rental" ? "Lease" : "Sale"} — ${listing.address}`);
@@ -2863,11 +2890,24 @@ export default function NewsletterBuilder() {
                 }}>
                 <UploadCloud size={14} /> {listingsImporting ? "Importing…" : "Import listings from Rex CSV export"}
               </button>
-              <div style={{ fontSize: 10.5, color: "#9AA2AC", marginTop: 6, lineHeight: 1.5 }}>
+              <div style={{ fontSize: 10.5, color: "#9AA2AC", marginTop: 6, marginBottom: 8, lineHeight: 1.5 }}>
                 One-time backfill for listings that existed before Zapier was connected — Zapier only catches new
                 listings going forward. Just export your listings from Rex and upload the file as-is — address,
                 price, property type, sale/rental, size, photos, and up to two agents are all read automatically
-                from Rex's own export format.
+                from Rex's own export format. Re-uploading the same export later updates existing listings in
+                place rather than duplicating them.
+              </div>
+              <button onClick={dedupeListings} disabled={dedupingListings || !adminToken}
+                style={{
+                  width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "8px 0",
+                  borderRadius: 6, border: `1px solid ${border}`, background: "#fff", color: inkSoft, fontSize: 12, fontWeight: 600,
+                  cursor: adminToken ? "pointer" : "default", opacity: dedupingListings ? 0.6 : 1,
+                }}>
+                <Trash2 size={13} /> {dedupingListings ? "Checking…" : "Clean up duplicate listings"}
+              </button>
+              <div style={{ fontSize: 10.5, color: "#9AA2AC", marginTop: 6, lineHeight: 1.5 }}>
+                One-time cleanup for listings that got duplicated before re-uploads started updating in place —
+                safe to click any time, does nothing if there's nothing to merge.
               </div>
               {listingsImportNote && (
                 <div style={{ fontSize: 12, color: "#2F7A4F", background: "#EAF6EE", borderRadius: 6, padding: "6px 10px", marginTop: 8 }}>{listingsImportNote}</div>

@@ -19,13 +19,26 @@ router.post("/listing", (req, res) => {
     return res.status(400).json({ error: "Empty listing payload" });
   }
   const payload = normalizeListingPayload(raw);
+  const externalId = payload.id || payload.listing_id || null;
 
-  const stmt = db.prepare(
-    "INSERT INTO listings (external_id, data) VALUES (?, ?)"
-  );
-  const info = stmt.run(payload.id || payload.listing_id || null, JSON.stringify(payload));
+  // Re-sending the same listing (e.g. Rex's "Listing Updated" event firing
+  // again) updates the existing row in place instead of creating a duplicate.
+  if (externalId) {
+    const existing = db.prepare("SELECT id FROM listings WHERE external_id = ?").get(externalId);
+    if (existing) {
+      db.prepare("UPDATE listings SET data = ?, created_at = datetime('now') WHERE id = ?").run(
+        JSON.stringify(payload),
+        existing.id
+      );
+      return res.json({ ok: true, action: "updated", listing_id: existing.id });
+    }
+  }
 
-  res.status(201).json({ ok: true, listing_id: info.lastInsertRowid });
+  const info = db
+    .prepare("INSERT INTO listings (external_id, data) VALUES (?, ?)")
+    .run(externalId, JSON.stringify(payload));
+
+  res.status(201).json({ ok: true, action: "created", listing_id: info.lastInsertRowid });
 });
 
 /**

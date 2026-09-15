@@ -185,7 +185,14 @@ real Rex export and reads these columns natively:
 - **Size** — `attr.buildarea` / `attr.buildarea_unit` and `attr.landarea` / `attr.landarea_unit`
 - **Photos** — the `images` column (comma-separated URLs — Rex typically exports 10-20+ per listing)
 - **Agents** — `listing_agents.1.name` / `.email` / `.mobile`, and `listing_agents.2.*` for a
-  second agent if present
+  second agent if present. Rex's export doesn't include agent photos, so those come from a
+  maintained lookup table in `src/routes/data.js` (`AGENT_PHOTO_LOOKUP`) instead — ProRealty's
+  site serves photos through signed, tamper-proof links rather than a predictable URL pattern,
+  so there's no formula to auto-generate these the way there is for listing page URLs. To add or
+  update an agent's photo: open their listing page on prorealty.com.au, right-click their photo,
+  "Copy image address", and add the name/URL pair to that table, then redeploy. Currently covers
+  Chris Maio, James Humphreys, and Ryan Humphreys; any agent not in the table just comes through
+  with no photo rather than breaking anything.
 - **Listing page URL** — built automatically as
   `https://prorealty.com.au/listings/{category}-R2-{id}-{suburb}`, e.g.
   `commercial_sale-R2-5043003-hawthorn`. Confirmed against 3 real live listing URLs (2 Commercial
@@ -194,13 +201,28 @@ real Rex export and reads these columns natively:
   your first import to confirm they land correctly. Uses the CSV's `id` column specifically —
   *not* `property_id`, which is a completely different number for the same listing.
 
+**Re-uploading the same export.** Each imported listing is tracked by Rex's own `id` column, so
+re-uploading the same (or an updated) export later **updates matching listings in place** instead
+of creating duplicates — the response distinguishes `imported` (new) from `updated` (matched an
+existing one). If you already have duplicates from before this existed, click **"Clean up
+duplicate listings"** next to the import button (or `POST /api/listings/dedupe`) — safe to run
+any time, including repeatedly; it's a no-op once there's nothing left to merge. It matches
+primarily by each listing's URL (which encodes the real Rex id) rather than address, since
+testing against a real export found multiple genuinely different listings — different Rex ids,
+different categories — legitimately sharing the exact same address (e.g. one parcel of land
+listed both for sale and for rent). Address-only matching would have silently merged those into
+one and lost data, so address is only used as a fallback for listings with no URL at all.
+
 **Prefer to build your own CSV instead?** These simpler columns work too, and take priority
 over the Rex-native ones above when present (case-insensitive header row):
 
 ```
 address, price, saleOrRental, propertyType, buildingSize, landSize, photos,
-agent_name, agent_role, agent_phone, agent_email, agent_photo
+agent_name, agent_role, agent_phone, agent_email, agent_photo, id
 ```
+
+Include `id` (any stable unique value per listing) if you want re-uploads of your own CSV to
+update in place too — without it, rows will always insert fresh.
 
 `photos` in this simpler format uses a semicolon (`;`) to separate multiple URLs in one cell,
 e.g. `https://.../1.jpg;https://.../2.jpg` (Rex's own `images` column uses a comma instead,
