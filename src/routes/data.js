@@ -371,15 +371,24 @@ router.post("/dev/seed-listings", (req, res) => {
  * inline base64 — safe to call more than once, it skips any URL already present.
  */
 router.post("/dev/seed-brand-assets", (req, res) => {
+  // Absolute, same reasoning as the upload route above — these URLs end up
+  // in exported HTML sent from elsewhere, where a relative path resolves to nothing.
+  const origin = (process.env.BASE_URL || `${req.protocol}://${req.get("host")}`).replace(/\/$/, "");
   const ASSETS = [
-    { name: "Header banner — For Sale", url: "/uploads/brand-header-for-sale.jpg" },
-    { name: "Header banner — For Lease", url: "/uploads/brand-header-for-lease.jpg" },
-    { name: "Lease icon", url: "/uploads/icon-lease.png" },
-    { name: "Zoning icon", url: "/uploads/icon-zoning.png" },
-    { name: "Parking icon", url: "/uploads/icon-parking.png" },
-    { name: "Income icon", url: "/uploads/icon-income.png" },
-    { name: "Land area icon", url: "/uploads/icon-land-area.png" },
-    { name: "Building area icon", url: "/uploads/icon-building-area.png" },
+    { name: "Header banner — For Sale", url: `${origin}/uploads/brand-header-for-sale.jpg` },
+    { name: "Header banner — For Lease", url: `${origin}/uploads/brand-header-for-lease.jpg` },
+    { name: "Lease icon (white)", url: `${origin}/uploads/icon-lease.png` },
+    { name: "Zoning icon (white)", url: `${origin}/uploads/icon-zoning.png` },
+    { name: "Parking icon (white)", url: `${origin}/uploads/icon-parking.png` },
+    { name: "Income icon (white)", url: `${origin}/uploads/icon-income.png` },
+    { name: "Land area icon (white)", url: `${origin}/uploads/icon-land-area.png` },
+    { name: "Building area icon (white)", url: `${origin}/uploads/icon-building-area.png` },
+    { name: "Lease icon (navy)", url: `${origin}/uploads/icon-lease-navy.png` },
+    { name: "Zoning icon (navy)", url: `${origin}/uploads/icon-zoning-navy.png` },
+    { name: "Parking icon (navy)", url: `${origin}/uploads/icon-parking-navy.png` },
+    { name: "Income icon (navy)", url: `${origin}/uploads/icon-income-navy.png` },
+    { name: "Land area icon (navy)", url: `${origin}/uploads/icon-land-area-navy.png` },
+    { name: "Building area icon (navy)", url: `${origin}/uploads/icon-building-area-navy.png` },
   ];
 
   const inserted = [];

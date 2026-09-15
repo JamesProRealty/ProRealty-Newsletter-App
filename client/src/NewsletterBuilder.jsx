@@ -232,6 +232,7 @@ function defaultProps(type) {
         align: "center",
         iconSize: 40,
         rowGap: 16,
+        iconColor: "white", // "white" | "navy" — match to your section background
         items: [
           { id: nextId(), icon: ICON_LEASE_SRC, label: "Lease Term" },
           { id: nextId(), icon: ICON_ZONING_SRC, label: "Zoning" },
@@ -276,25 +277,27 @@ function defaultProps(type) {
         fontFamily: FONT_HELVETICA,
         fontSize: 13,
         photoHeight: 200, // px — set to 0 for natural/auto aspect ratio
-        showSizes: true, // toggle building/land size display on each tile
+        showSizes: true, // toggle the whole stats row (any icon+label pairs) on each tile
+        iconColor: "navy", // "navy" | "white" — match to your card background
         listings: [
           {
             id: nextId(),
             photo: "https://placehold.co/500x400/D9CBB0/171B21?text=Listing+Photo",
             photoAlt: "Listing photo",
             address: "G1 / 55 Grenfell Street, ADELAIDE SA 5000",
-            buildingSize: "180m²",
-            landSize: "",
             url: "https://example.com",
+            stats: [{ id: nextId(), icon: ICON_BUILDING_AREA_SRC, label: "180m²" }],
           },
           {
             id: nextId(),
             photo: "https://placehold.co/500x400/C7D2CC/171B21?text=Listing+Photo",
             photoAlt: "Listing photo",
             address: "585-589 Salisbury Highway, GREENFIELDS SA 5107",
-            buildingSize: "620m²",
-            landSize: "1,200m²",
             url: "https://example.com",
+            stats: [
+              { id: nextId(), icon: ICON_BUILDING_AREA_SRC, label: "620m²" },
+              { id: nextId(), icon: ICON_LAND_AREA_SRC, label: "1,200m²" },
+            ],
           },
         ],
       };
@@ -390,6 +393,48 @@ const ICON_PARKING_SRC = `${ASSET_ORIGIN}/uploads/icon-parking.png`;
 const ICON_INCOME_SRC = `${ASSET_ORIGIN}/uploads/icon-income.png`;
 const ICON_LAND_AREA_SRC = `${ASSET_ORIGIN}/uploads/icon-land-area.png`;
 const ICON_BUILDING_AREA_SRC = `${ASSET_ORIGIN}/uploads/icon-building-area.png`;
+// Navy-colored versions of the same icons, for use on light/white backgrounds
+// (the white versions above are invisible there) — pre-made as real files
+// rather than a live CSS color filter, since filters are unreliable across
+// email clients like Outlook.
+const ICON_LEASE_SRC_NAVY = `${ASSET_ORIGIN}/uploads/icon-lease-navy.png`;
+const ICON_ZONING_SRC_NAVY = `${ASSET_ORIGIN}/uploads/icon-zoning-navy.png`;
+const ICON_PARKING_SRC_NAVY = `${ASSET_ORIGIN}/uploads/icon-parking-navy.png`;
+const ICON_INCOME_SRC_NAVY = `${ASSET_ORIGIN}/uploads/icon-income-navy.png`;
+const ICON_LAND_AREA_SRC_NAVY = `${ASSET_ORIGIN}/uploads/icon-land-area-navy.png`;
+const ICON_BUILDING_AREA_SRC_NAVY = `${ASSET_ORIGIN}/uploads/icon-building-area-navy.png`;
+
+const ICON_VARIANTS = {
+  lease: { white: ICON_LEASE_SRC, navy: ICON_LEASE_SRC_NAVY },
+  zoning: { white: ICON_ZONING_SRC, navy: ICON_ZONING_SRC_NAVY },
+  parking: { white: ICON_PARKING_SRC, navy: ICON_PARKING_SRC_NAVY },
+  income: { white: ICON_INCOME_SRC, navy: ICON_INCOME_SRC_NAVY },
+  landArea: { white: ICON_LAND_AREA_SRC, navy: ICON_LAND_AREA_SRC_NAVY },
+  buildingArea: { white: ICON_BUILDING_AREA_SRC, navy: ICON_BUILDING_AREA_SRC_NAVY },
+};
+// Reverse lookup: given whichever concrete icon URL is already stored (the
+// Property Stats block saves the resolved URL per item, from before this
+// color toggle existed), figure out which of the 6 icons it is so the
+// toggle can still switch it — falls through unchanged for a custom/uploaded
+// icon that isn't one of ours.
+const ICON_URL_TO_KIND = Object.fromEntries(
+  Object.entries(ICON_VARIANTS).flatMap(([kind, { white, navy }]) => [[white, kind], [navy, kind]])
+);
+function resolveIconColor(iconUrl, color) {
+  const kind = ICON_URL_TO_KIND[iconUrl];
+  return kind ? ICON_VARIANTS[kind][color] || iconUrl : iconUrl;
+}
+
+// Labeled choices for icon-picker dropdowns — "Parking" is labeled "Car
+// Parks" here since that's the more natural term for a per-listing stat.
+const STAT_ICON_CHOICES = [
+  { kind: "buildingArea", label: "Building Area" },
+  { kind: "landArea", label: "Land Area" },
+  { kind: "zoning", label: "Zoning" },
+  { kind: "parking", label: "Car Parks" },
+  { kind: "lease", label: "Lease Term" },
+  { kind: "income", label: "Income" },
+];
 
 const STARTER_BLOCKS = [
   makeBlock("navbar"),
@@ -440,6 +485,17 @@ function chunk(arr, size) {
 // untouched if it doesn't end in that exact pattern, rather than guessing.
 function shortAddress(address = "") {
   return address.replace(/\s+[A-Z]{2,3}\s+\d{4}$/, "").trim();
+}
+
+// Returns a Listings Grid tile's stat list (icon+label pairs). Falls back to
+// building/land size for tiles saved before this flexible list existed, so
+// older templates keep working without needing to be manually re-edited.
+function tileStats(l) {
+  if (Array.isArray(l.stats) && l.stats.length > 0) return l.stats;
+  const fallback = [];
+  if (l.buildingSize) fallback.push({ id: "legacy-building", icon: ICON_BUILDING_AREA_SRC, label: l.buildingSize });
+  if (l.landSize) fallback.push({ id: "legacy-land", icon: ICON_LAND_AREA_SRC, label: l.landSize });
+  return fallback;
 }
 
 function blockToHtml(block) {
@@ -530,7 +586,7 @@ function blockToHtml(block) {
       const cellPct = Math.floor(100 / chunkSize);
       const cell = (item) => `
         <td style="width:${cellPct}%;text-align:${p.align};vertical-align:top;padding:${p.rowGap / 2}px 6px;">
-          <img src="${item.icon}" width="${p.iconSize}" height="${p.iconSize}" style="width:${p.iconSize}px;height:${p.iconSize}px;display:block;margin:${p.align === "left" ? "0" : p.align === "right" ? "0 0 0 auto" : "0 auto"} 10px;" alt="" />
+          <img src="${resolveIconColor(item.icon, p.iconColor)}" width="${p.iconSize}" height="${p.iconSize}" style="width:${p.iconSize}px;height:${p.iconSize}px;display:block;margin:${p.align === "left" ? "0" : p.align === "right" ? "0 0 0 auto" : "0 auto"} 10px;" alt="" />
           <div style="font-family:${p.fontFamily};font-size:${p.fontSize}px;color:${p.textColor};">${item.label}</div>
         </td>`;
       const rows = chunk(p.items, chunkSize).map((row) => `
@@ -561,14 +617,14 @@ function blockToHtml(block) {
       const iconSize = 14;
       const sizeChips = (l) => {
         if (!p.showSizes) return "";
-        const chips = [];
-        if (l.buildingSize) {
-          chips.push(`<span style="display:inline-block;margin-right:14px;"><img src="${ICON_BUILDING_AREA_SRC}" width="${iconSize}" height="${iconSize}" style="width:${iconSize}px;height:${iconSize}px;vertical-align:middle;margin-right:4px;" alt="" />${escapeHtml(l.buildingSize)}</span>`);
-        }
-        if (l.landSize) {
-          chips.push(`<span style="display:inline-block;"><img src="${ICON_LAND_AREA_SRC}" width="${iconSize}" height="${iconSize}" style="width:${iconSize}px;height:${iconSize}px;vertical-align:middle;margin-right:4px;" alt="" />${escapeHtml(l.landSize)}</span>`);
-        }
-        return chips.join("");
+        const stats = tileStats(l);
+        return stats
+          .map((s, i) => {
+            const iconSrc = resolveIconColor(s.icon, p.iconColor);
+            const marginRight = i < stats.length - 1 ? "margin-right:14px;" : "";
+            return `<span style="display:inline-block;${marginRight}"><img src="${iconSrc}" width="${iconSize}" height="${iconSize}" style="width:${iconSize}px;height:${iconSize}px;vertical-align:middle;margin-right:4px;" alt="" />${escapeHtml(s.label)}</span>`;
+          })
+          .join("");
       };
       const photoStyle = p.photoHeight > 0
         ? `width:100%;height:${p.photoHeight}px;display:block;object-fit:cover;`
@@ -1004,9 +1060,8 @@ function PropertyPanel({ block, updateProps, openLibrary, openListingsPicker }) 
           photo: photoUrl,
           photoAlt: "Listing photo",
           address: "New listing address",
-          buildingSize: "",
-          landSize: "",
           url: "https://example.com",
+          stats: [],
         }],
       });
     });
@@ -1018,6 +1073,23 @@ function PropertyPanel({ block, updateProps, openLibrary, openListingsPicker }) 
     if (target < 0 || target >= listings.length) return;
     [listings[index], listings[target]] = [listings[target], listings[index]];
     set({ listings });
+  };
+
+  // Per-tile stat list (icon + label pairs, e.g. Building Area, Zoning, Car Parks)
+  const addListingStat = (listingIndex) => {
+    const listing = block.props.listings[listingIndex];
+    const stats = [...tileStats(listing), { id: nextId(), icon: ICON_BUILDING_AREA_SRC, label: "" }];
+    setListing(listingIndex, { stats });
+  };
+  const setListingStat = (listingIndex, statIndex, patch) => {
+    const listing = block.props.listings[listingIndex];
+    const stats = tileStats(listing).map((s, i) => (i === statIndex ? { ...s, ...patch } : s));
+    setListing(listingIndex, { stats });
+  };
+  const removeListingStat = (listingIndex, statIndex) => {
+    const listing = block.props.listings[listingIndex];
+    const stats = tileStats(listing).filter((_, i) => i !== statIndex);
+    setListing(listingIndex, { stats });
   };
 
   const setContactLink = (index, patch) => {
@@ -1297,6 +1369,11 @@ function PropertyPanel({ block, updateProps, openLibrary, openListingsPicker }) 
             <input type="range" min="20" max="72" value={block.props.iconSize}
               onChange={(e) => set({ iconSize: Number(e.target.value) })} style={{ width: "100%" }} />
           </Field>
+          <Field label="Icon color">
+            <SegButton value={block.props.iconColor} onChange={(v) => set({ iconColor: v })}
+              options={[{ value: "white", label: "White" }, { value: "navy", label: "Navy" }]} />
+            <div style={{ fontSize: 10.5, color: inkSoft, marginTop: 4 }}>Pick whichever shows up against your background — white for navy/dark, navy for light backgrounds.</div>
+          </Field>
           <FontControls
             props={{ fontFamily: block.props.fontFamily, fontSize: block.props.fontSize, color: block.props.textColor, align: block.props.align }}
             set={(patch) => set({
@@ -1311,7 +1388,12 @@ function PropertyPanel({ block, updateProps, openLibrary, openListingsPicker }) 
           {block.props.items.map((item, i) => (
             <div key={item.id} style={{ border: `1px solid ${border}`, borderRadius: 8, padding: 10, marginBottom: 10 }}>
               <div style={{ display: "flex", gap: 10, marginBottom: 8, alignItems: "center" }}>
-                <img src={item.icon} alt="" onError={handleImgError} style={{ width: 32, height: 32, objectFit: "contain", flexShrink: 0, background: BRAND_NAVY, borderRadius: 6, padding: 4 }} />
+                <img src={resolveIconColor(item.icon, block.props.iconColor)} alt="" onError={handleImgError}
+                  style={{
+                    width: 32, height: 32, objectFit: "contain", flexShrink: 0, borderRadius: 6, padding: 4,
+                    background: block.props.iconColor === "navy" ? "#fff" : BRAND_NAVY,
+                    border: block.props.iconColor === "navy" ? `1px solid ${border}` : "none",
+                  }} />
                 <button type="button" onClick={() => openLibrary((v) => setStatItem(i, { icon: v }))} title="Choose icon from image library"
                   style={{ border: `1px solid ${border}`, borderRadius: 6, background: "#fff", padding: "0 9px", height: 32, cursor: "pointer", color: inkSoft, display: "flex", alignItems: "center", flexShrink: 0 }}>
                   <Images size={14} />
@@ -1417,10 +1499,17 @@ function PropertyPanel({ block, updateProps, openLibrary, openListingsPicker }) 
             <input type="range" min="0" max="400" step="10" value={block.props.photoHeight}
               onChange={(e) => set({ photoHeight: Number(e.target.value) })} style={{ width: "100%" }} />
           </Field>
-          <Field label="Show building/land size">
+          <Field label="Show stats row (size, zoning, etc)">
             <SegButton value={block.props.showSizes} onChange={(v) => set({ showSizes: v })}
               options={[{ value: true, label: "On" }, { value: false, label: "Off" }]} />
           </Field>
+          {block.props.showSizes && (
+            <Field label="Size icon color">
+              <SegButton value={block.props.iconColor} onChange={(v) => set({ iconColor: v })}
+                options={[{ value: "navy", label: "Navy" }, { value: "white", label: "White" }]} />
+              <div style={{ fontSize: 10.5, color: inkSoft, marginTop: 4 }}>Pick whichever shows up against your card background — navy for light cards, white for dark ones.</div>
+            </Field>
+          )}
           <Field label="Section background"><ColorInput value={block.props.bg} onChange={(v) => set({ bg: v })} /></Field>
           <Field label="Card background"><ColorInput value={block.props.cardBg} onChange={(v) => set({ cardBg: v })} /></Field>
           <FontControls
@@ -1460,18 +1549,35 @@ function PropertyPanel({ block, updateProps, openLibrary, openListingsPicker }) 
               <Field label="Address">
                 <TextInput value={l.address} onChange={(e) => setListing(i, { address: e.target.value })} />
               </Field>
-              <div style={{ display: "flex", gap: 8 }}>
-                <div style={{ flex: 1 }}>
-                  <Field label="Building size">
-                    <TextInput value={l.buildingSize} onChange={(e) => setListing(i, { buildingSize: e.target.value })} placeholder="e.g. 180m²" />
-                  </Field>
+
+              <div style={{ fontSize: 10.5, fontWeight: 700, color: inkSoft, textTransform: "uppercase", letterSpacing: 0.3, margin: "10px 0 6px" }}>Stats shown on this tile</div>
+              {tileStats(l).map((s, si) => (
+                <div key={s.id} style={{ display: "flex", gap: 6, marginBottom: 6, alignItems: "center" }}>
+                  <div style={{ width: 22, height: 22, borderRadius: 4, background: BRAND_NAVY, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                    <img src={s.icon} alt="" onError={handleImgError} style={{ width: 14, height: 14, objectFit: "contain" }} />
+                  </div>
+                  <div style={{ width: 118, flexShrink: 0 }}>
+                    <Select
+                      value={ICON_URL_TO_KIND[s.icon] || "custom"}
+                      onChange={(kind) => {
+                        if (kind === "custom") { openLibrary((v) => setListingStat(i, si, { icon: v })); return; }
+                        setListingStat(i, si, { icon: ICON_VARIANTS[kind].white });
+                      }}
+                      options={[...STAT_ICON_CHOICES.map((c) => ({ value: c.kind, label: c.label })), { value: "custom", label: "Custom icon…" }]}
+                    />
+                  </div>
+                  <TextInput value={s.label} onChange={(e) => setListingStat(i, si, { label: e.target.value })} placeholder="e.g. 180m²" style={{ flex: 1 }} />
+                  <button onClick={() => removeListingStat(i, si)}
+                    style={{ border: `1px solid ${border}`, background: "#fff", borderRadius: 6, padding: "0 8px", height: 32, cursor: "pointer", color: "#C0503D", flexShrink: 0 }}>
+                    <Trash2 size={13} />
+                  </button>
                 </div>
-                <div style={{ flex: 1 }}>
-                  <Field label="Land size">
-                    <TextInput value={l.landSize} onChange={(e) => setListing(i, { landSize: e.target.value })} placeholder="e.g. 500m²" />
-                  </Field>
-                </div>
-              </div>
+              ))}
+              <button onClick={() => addListingStat(i)}
+                style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "7px 0", marginBottom: 10, borderRadius: 6, border: `1px dashed ${border}`, background: "#fff", color: inkSoft, fontSize: 11.5, fontWeight: 600, cursor: "pointer" }}>
+                <Plus size={12} /> Add a stat
+              </button>
+
               <Field label="External link (photo links here)">
                 <TextInput value={l.url} onChange={(e) => setListing(i, { url: e.target.value })} placeholder="https://..." />
               </Field>
@@ -1787,7 +1893,7 @@ function BlockPreview({ block }) {
           <div style={{ display: "grid", gridTemplateColumns: `repeat(${chunkSize}, 1fr)`, gap: `${p.rowGap}px 8px` }}>
             {p.items.map((item) => (
               <div key={item.id} style={{ display: "flex", flexDirection: "column", alignItems: p.align === "left" ? "flex-start" : p.align === "right" ? "flex-end" : "center" }}>
-                <img src={item.icon} alt="" onError={handleImgError} draggable={false} style={{ width: p.iconSize, height: p.iconSize, marginBottom: 10, objectFit: "contain" }} />
+                <img src={resolveIconColor(item.icon, p.iconColor)} alt="" onError={handleImgError} draggable={false} style={{ width: p.iconSize, height: p.iconSize, marginBottom: 10, objectFit: "contain" }} />
                 <div style={{ fontFamily: p.fontFamily, fontSize: p.fontSize, color: p.textColor, textAlign: p.align }}
                   dangerouslySetInnerHTML={{ __html: item.label }} />
               </div>
@@ -1821,22 +1927,17 @@ function BlockPreview({ block }) {
     case "listings": {
       const sizeChips = (l) => (
         <div style={{ fontFamily: p.fontFamily, fontSize: p.fontSize, color: p.textColor, opacity: 0.75, marginBottom: 14, display: "flex", gap: 14, flexWrap: "wrap" }}>
-          {l.buildingSize && (
-            <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-              <img src={ICON_BUILDING_AREA_SRC} alt="" style={{ width: 14, height: 14 }} />{l.buildingSize}
+          {tileStats(l).map((s) => (
+            <span key={s.id} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+              <img src={resolveIconColor(s.icon, p.iconColor)} alt="" style={{ width: 14, height: 14 }} />{s.label}
             </span>
-          )}
-          {l.landSize && (
-            <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-              <img src={ICON_LAND_AREA_SRC} alt="" style={{ width: 14, height: 14 }} />{l.landSize}
-            </span>
-          )}
+          ))}
         </div>
       );
       const cardInner = (l) => (
         <>
           <div style={{ fontFamily: p.fontFamily, fontSize: p.fontSize + 3, fontWeight: 700, color: p.textColor, marginBottom: 8 }}>{shortAddress(l.address)}</div>
-          {p.showSizes && (l.buildingSize || l.landSize) && sizeChips(l)}
+          {p.showSizes && tileStats(l).length > 0 && sizeChips(l)}
         </>
       );
       const photoImgStyle = p.photoHeight > 0
@@ -2096,9 +2197,11 @@ export default function NewsletterBuilder() {
         photo: l.photos?.[0] || "https://placehold.co/500x400/EEF0F3/171B21?text=No+Photo",
         photoAlt: l.address,
         address: l.address,
-        buildingSize: l.buildingSize || "",
-        landSize: l.landSize || "",
         url: l.url || "",
+        stats: [
+          ...(l.buildingSize ? [{ id: nextId(), icon: ICON_BUILDING_AREA_SRC, label: l.buildingSize }] : []),
+          ...(l.landSize ? [{ id: nextId(), icon: ICON_LAND_AREA_SRC, label: l.landSize }] : []),
+        ],
       }));
     updateProps(listingsPickerBlockId, { listings: [...(targetBlock.props.listings || []), ...newTiles] });
     setListingsPickerOpen(false);

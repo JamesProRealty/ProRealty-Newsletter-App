@@ -12,4 +12,10 @@ src/public/uploads/*
 !src/public/uploads/icon-income.png
 !src/public/uploads/icon-land-area.png
 !src/public/uploads/icon-building-area.png
+!src/public/uploads/icon-lease-navy.png
+!src/public/uploads/icon-zoning-navy.png
+!src/public/uploads/icon-parking-navy.png
+!src/public/uploads/icon-income-navy.png
+!src/public/uploads/icon-land-area-navy.png
+!src/public/uploads/icon-building-area-navy.png
 client/node_modules/
