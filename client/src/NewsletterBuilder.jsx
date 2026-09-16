@@ -279,6 +279,7 @@ function defaultProps(type) {
         photoHeight: 200, // px — set to 0 for natural/auto aspect ratio
         showSizes: true, // toggle the whole stats row (any icon+label pairs) on each tile
         iconColor: "navy", // "navy" | "white" — match to your card background
+        tilePadding: 10, // px — space inside each tile card, around the address/stats
         listings: [
           {
             id: nextId(),
@@ -640,7 +641,7 @@ function blockToHtml(block) {
         ? `width:100%;height:${p.photoHeight}px;display:block;object-fit:cover;`
         : `width:100%;display:block;`;
       const cardInner = (l) => `
-        <a href="${l.url}" style="text-decoration:none;font-family:${p.fontFamily};font-size:${p.fontSize + 3}px;font-weight:700;color:${p.textColor};display:block;margin-bottom:8px;">${escapeHtml(shortAddress(l.address))}</a>
+        <a href="${l.url}" style="text-decoration:none;font-family:${p.fontFamily};font-size:${p.fontSize + 3}px;font-weight:700;color:${p.textColor};display:block;margin-bottom:6px;">${escapeHtml(shortAddress(l.address))}</a>
         ${sizeChips(l) ? `<div style="font-family:${p.fontFamily};font-size:${p.fontSize}px;color:${p.textColor};opacity:0.75;">${sizeChips(l)}</div>` : ""}`;
 
       let bodyHtml;
@@ -649,7 +650,7 @@ function blockToHtml(block) {
         bodyHtml = p.listings.map((l) => `
           <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${p.cardBg};border-radius:6px;margin-bottom:16px;"><tr>
             <td style="width:38%;vertical-align:top;"><a href="${l.url}"><img src="${l.photo}" alt="${escapeHtml(l.photoAlt)}" width="${photoW}" style="${photoStyle}border-radius:6px 0 0 6px;" /></a></td>
-            <td style="width:62%;vertical-align:top;padding:16px;">${cardInner(l)}</td>
+            <td style="width:62%;vertical-align:top;padding:${p.tilePadding}px;">${cardInner(l)}</td>
           </tr></table>`).join("");
       } else {
         const chunkSize = p.columns;
@@ -659,7 +660,7 @@ function blockToHtml(block) {
           <td style="width:${cellPct}%;vertical-align:top;padding:8px;">
             <div style="background:${p.cardBg};border-radius:6px;">
               <a href="${l.url}"><img src="${l.photo}" alt="${escapeHtml(l.photoAlt)}" width="${photoW}" style="${photoStyle}border-radius:6px 6px 0 0;" /></a>
-              <div style="padding:14px;">${cardInner(l)}</div>
+              <div style="padding:${p.tilePadding}px;">${cardInner(l)}</div>
             </div>
           </td>`;
         const rows = chunk(p.listings, chunkSize).map((row) => `
@@ -1511,6 +1512,10 @@ function PropertyPanel({ block, updateProps, openLibrary, openListingsPicker }) 
             <input type="range" min="0" max="400" step="10" value={block.props.photoHeight}
               onChange={(e) => set({ photoHeight: Number(e.target.value) })} style={{ width: "100%" }} />
           </Field>
+          <Field label={`Space around address/stats — ${block.props.tilePadding}px`}>
+            <input type="range" min="0" max="24" value={block.props.tilePadding}
+              onChange={(e) => set({ tilePadding: Number(e.target.value) })} style={{ width: "100%" }} />
+          </Field>
           <Field label="Show stats row (size, zoning, etc)">
             <SegButton value={block.props.showSizes} onChange={(v) => set({ showSizes: v })}
               options={[{ value: true, label: "On" }, { value: false, label: "Off" }]} />
@@ -1938,7 +1943,7 @@ function BlockPreview({ block }) {
     }
     case "listings": {
       const sizeChips = (l) => (
-        <div style={{ fontFamily: p.fontFamily, fontSize: p.fontSize, color: p.textColor, opacity: 0.75, marginBottom: 14, display: "flex", gap: 14, flexWrap: "wrap" }}>
+        <div style={{ fontFamily: p.fontFamily, fontSize: p.fontSize, color: p.textColor, opacity: 0.75, display: "flex", gap: 14, flexWrap: "wrap" }}>
           {tileStats(l).map((s) => (
             <span key={s.id} style={{ display: "flex", alignItems: "center", gap: 4 }}>
               <img src={resolveIconColor(s.icon, p.iconColor)} alt="" style={{ width: 14, height: 14 }} />{s.label}
@@ -1948,7 +1953,7 @@ function BlockPreview({ block }) {
       );
       const cardInner = (l) => (
         <>
-          <div style={{ fontFamily: p.fontFamily, fontSize: p.fontSize + 3, fontWeight: 700, color: p.textColor, marginBottom: 8 }}>{shortAddress(l.address)}</div>
+          <div style={{ fontFamily: p.fontFamily, fontSize: p.fontSize + 3, fontWeight: 700, color: p.textColor, marginBottom: 6 }}>{shortAddress(l.address)}</div>
           {p.showSizes && tileStats(l).length > 0 && sizeChips(l)}
         </>
       );
@@ -1972,7 +1977,7 @@ function BlockPreview({ block }) {
                     <div style={{ flex: "0 0 38%" }}>
                       <img src={l.photo} alt={l.photoAlt} onError={handleImgError} draggable={false} style={{ ...photoImgStyle, height: p.photoHeight > 0 ? p.photoHeight : "100%" }} />
                     </div>
-                    <div style={{ flex: "0 0 62%", padding: 16 }}>{cardInner(l)}</div>
+                    <div style={{ flex: "0 0 62%", padding: p.tilePadding }}>{cardInner(l)}</div>
                   </div>
                 ))}
               </div>
@@ -1981,7 +1986,7 @@ function BlockPreview({ block }) {
                 {p.listings.map((l) => (
                   <div key={l.id} style={{ background: p.cardBg, borderRadius: 6, overflow: "hidden" }}>
                     <img src={l.photo} alt={l.photoAlt} onError={handleImgError} draggable={false} style={photoImgStyle} />
-                    <div style={{ padding: 14 }}>{cardInner(l)}</div>
+                    <div style={{ padding: p.tilePadding }}>{cardInner(l)}</div>
                   </div>
                 ))}
               </div>
