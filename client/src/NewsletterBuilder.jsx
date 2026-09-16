@@ -1892,8 +1892,8 @@ function BlockPreview({ block }) {
           <div style={{ background: p.bg, padding: `0 ${p.outerMargin}px` }}>
             <img src={hero?.src} alt={hero?.alt} onError={handleImgError} draggable={false} style={{ width: "100%", display: "block", borderRadius: 4 }} />
             <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-              <img src={small1?.src} alt={small1?.alt} onError={handleImgError} draggable={false} style={{ width: "50%", display: "block", borderRadius: 4 }} />
-              <img src={small2?.src} alt={small2?.alt} onError={handleImgError} draggable={false} style={{ width: "50%", display: "block", borderRadius: 4 }} />
+              <img src={small1?.src} alt={small1?.alt} onError={handleImgError} draggable={false} style={{ flex: 1, minWidth: 0, display: "block", borderRadius: 4 }} />
+              <img src={small2?.src} alt={small2?.alt} onError={handleImgError} draggable={false} style={{ flex: 1, minWidth: 0, display: "block", borderRadius: 4 }} />
             </div>
           </div>
         );
