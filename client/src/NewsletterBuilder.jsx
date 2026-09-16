@@ -541,11 +541,17 @@ function blockToHtml(block) {
       const textModeBg = p.bgImage
         ? `background-color:${p.bg};background-image:linear-gradient(${hexToRgba(p.bg, p.bgOverlayOpacity)},${hexToRgba(p.bg, p.bgOverlayOpacity)}),url('${p.bgImage}');background-size:cover;background-position:center;`
         : `background:${p.bg};`;
+      // Explicit pixel width (not just CSS) — many email clients (Outlook
+      // especially) ignore CSS width:100% on <img> and fall back to the
+      // photo's native size instead, which for a real camera photo can be
+      // thousands of pixels wide. The HTML width attribute is what actually
+      // controls display size reliably across clients.
+      const headerImgWidth = 600 - p.outerMargin * 2;
       const bgBox = p.mode === "image"
-        ? `<img src="${activeImg}" alt="${escapeHtml(p.imageAlt)}" style="display:block;width:100%;border-radius:${bgRadius}px;" />`
+        ? `<img src="${activeImg}" alt="${escapeHtml(p.imageAlt)}" width="${headerImgWidth}" style="display:block;width:100%;border-radius:${bgRadius}px;" />`
         : `<div style="${textModeBg}border-radius:${bgRadius}px;padding:${p.textPaddingY}px 32px;">${content}</div>`;
       const noBorderBox = p.mode === "image"
-        ? `<img src="${activeImg}" alt="${escapeHtml(p.imageAlt)}" style="display:block;width:100%;border-radius:${outerRadius}px;border:${p.borderWidth}px solid ${p.borderColor};box-sizing:border-box;" />`
+        ? `<img src="${activeImg}" alt="${escapeHtml(p.imageAlt)}" width="${headerImgWidth}" style="display:block;width:100%;border-radius:${outerRadius}px;border:${p.borderWidth}px solid ${p.borderColor};box-sizing:border-box;" />`
         : `<div style="${textModeBg}border-radius:${outerRadius}px;border:${p.borderWidth}px solid ${p.borderColor};padding:${p.textPaddingY}px 32px;">${content}</div>`;
       const framed = p.innerBorderWidth > 0
         ? `<div style="border:${p.borderWidth}px solid ${p.borderColor};border-radius:${outerRadius}px;padding:0;">
@@ -566,19 +572,21 @@ function blockToHtml(block) {
       const maxW = 600 - p.outerMargin * 2;
       if (p.layout === "hero2") {
         const [hero, small1, small2] = p.photos;
+        const halfW = Math.floor((maxW - 8) / 2); // minus the 4px+4px gap between the two side-by-side photos
         return `
       <tr><td style="background:${p.bg};padding:0 ${p.outerMargin}px;">
-        <img src="${hero?.src || ""}" alt="${escapeHtml(hero?.alt || "")}" style="width:100%;max-width:${maxW}px;display:block;border-radius:4px;" />
+        <img src="${hero?.src || ""}" alt="${escapeHtml(hero?.alt || "")}" width="${maxW}" style="width:100%;max-width:${maxW}px;display:block;border-radius:4px;" />
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:8px;"><tr>
-          <td style="width:50%;padding-right:4px;"><img src="${small1?.src || ""}" alt="${escapeHtml(small1?.alt || "")}" style="width:100%;display:block;border-radius:4px;" /></td>
-          <td style="width:50%;padding-left:4px;"><img src="${small2?.src || ""}" alt="${escapeHtml(small2?.alt || "")}" style="width:100%;display:block;border-radius:4px;" /></td>
+          <td style="width:50%;padding-right:4px;"><img src="${small1?.src || ""}" alt="${escapeHtml(small1?.alt || "")}" width="${halfW}" style="width:100%;display:block;border-radius:4px;" /></td>
+          <td style="width:50%;padding-left:4px;"><img src="${small2?.src || ""}" alt="${escapeHtml(small2?.alt || "")}" width="${halfW}" style="width:100%;display:block;border-radius:4px;" /></td>
         </tr></table>
       </td></tr>`;
       }
       const photo = p.photos[0];
+      const photoW = p.width === "half" ? Math.round(maxW / 2) : maxW;
       return `
       <tr><td style="background:${p.bg};padding:0 ${p.outerMargin}px;">
-        <img src="${photo?.src || ""}" alt="${escapeHtml(photo?.alt || "")}" style="width:100%;max-width:${p.width === "half" ? Math.round(maxW / 2) : maxW}px;display:block;border-radius:4px;" />
+        <img src="${photo?.src || ""}" alt="${escapeHtml(photo?.alt || "")}" width="${photoW}" style="width:100%;max-width:${photoW}px;display:block;border-radius:4px;" />
       </td></tr>`;
     }
     case "stats": {
@@ -600,7 +608,8 @@ function blockToHtml(block) {
       </td></tr>`;
     }
     case "article": {
-      const imgCell = `<td style="width:42%;vertical-align:top;"><img src="${p.photo}" alt="${escapeHtml(p.photoAlt)}" style="width:100%;display:block;border-radius:4px;" /></td>`;
+      const articleImgW = Math.round((600 - 64) * 0.42); // 600 outer - 32px padding each side, 42% column
+      const imgCell = `<td style="width:42%;vertical-align:top;"><img src="${p.photo}" alt="${escapeHtml(p.photoAlt)}" width="${articleImgW}" style="width:100%;display:block;border-radius:4px;" /></td>`;
       const textPadding = p.imagePosition === "left" ? "0 0 0 24px" : "0 24px 0 0";
       const textCell = `<td style="width:58%;vertical-align:top;padding:${textPadding};">
         <div style="font-family:${p.titleFontFamily};font-size:${p.titleFontSize}px;font-weight:700;color:${p.titleColor};line-height:1.3;margin-bottom:10px;">${p.title}</div>
@@ -626,6 +635,7 @@ function blockToHtml(block) {
           })
           .join("");
       };
+      const innerW = 600 - 48; // 600 outer table - 24px padding each side
       const photoStyle = p.photoHeight > 0
         ? `width:100%;height:${p.photoHeight}px;display:block;object-fit:cover;`
         : `width:100%;display:block;`;
@@ -635,18 +645,20 @@ function blockToHtml(block) {
 
       let bodyHtml;
       if (p.columns === 1 && p.tileLayout === "side-by-side") {
+        const photoW = Math.round(innerW * 0.38);
         bodyHtml = p.listings.map((l) => `
           <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${p.cardBg};border-radius:6px;margin-bottom:16px;"><tr>
-            <td style="width:38%;vertical-align:top;"><a href="${l.url}"><img src="${l.photo}" alt="${escapeHtml(l.photoAlt)}" style="${photoStyle}border-radius:6px 0 0 6px;" /></a></td>
+            <td style="width:38%;vertical-align:top;"><a href="${l.url}"><img src="${l.photo}" alt="${escapeHtml(l.photoAlt)}" width="${photoW}" style="${photoStyle}border-radius:6px 0 0 6px;" /></a></td>
             <td style="width:62%;vertical-align:top;padding:16px;">${cardInner(l)}</td>
           </tr></table>`).join("");
       } else {
         const chunkSize = p.columns;
         const cellPct = Math.floor(100 / chunkSize);
+        const photoW = Math.round(innerW * (cellPct / 100)) - 16; // minus this tile's own 8px+8px padding
         const tileCell = (l) => `
           <td style="width:${cellPct}%;vertical-align:top;padding:8px;">
             <div style="background:${p.cardBg};border-radius:6px;">
-              <a href="${l.url}"><img src="${l.photo}" alt="${escapeHtml(l.photoAlt)}" style="${photoStyle}border-radius:6px 6px 0 0;" /></a>
+              <a href="${l.url}"><img src="${l.photo}" alt="${escapeHtml(l.photoAlt)}" width="${photoW}" style="${photoStyle}border-radius:6px 6px 0 0;" /></a>
               <div style="padding:14px;">${cardInner(l)}</div>
             </div>
           </td>`;
@@ -715,7 +727,7 @@ function blockToHtml(block) {
       };
       return `
       <tr><td style="background:${p.bg};padding:32px 24px;text-align:${p.align};">
-        ${p.logo ? `<img src="${p.logo}" alt="${escapeHtml(p.logoAlt)}" style="max-width:${p.logoWidth}px;width:100%;display:block;margin:0 auto 18px;" />` : ""}
+        ${p.logo ? `<img src="${p.logo}" alt="${escapeHtml(p.logoAlt)}" width="${p.logoWidth}" style="max-width:${p.logoWidth}px;width:100%;display:block;margin:0 auto 18px;" />` : ""}
         <div style="font-family:${p.fontFamily};font-size:${p.fontSize}px;font-weight:700;line-height:1.6;">${contactRow}</div>
         <div style="font-family:${p.fontFamily};font-size:${p.fontSize}px;color:${p.contactColor};margin-bottom:16px;">${p.addressText}</div>
         <div style="margin-bottom:18px;">${p.socialLinks.map(socialBadge).join("")}</div>
