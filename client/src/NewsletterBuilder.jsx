@@ -280,6 +280,7 @@ function defaultProps(type) {
         showSizes: true, // toggle the whole stats row (any icon+label pairs) on each tile
         iconColor: "navy", // "navy" | "white" — match to your card background
         tilePadding: 10, // px — space inside each tile card, around the address/stats
+        textAlign: "left", // "left" | "center" | "right" — address + stats row
         listings: [
           {
             id: nextId(),
@@ -641,8 +642,8 @@ function blockToHtml(block) {
         ? `width:100%;height:${p.photoHeight}px;display:block;object-fit:cover;`
         : `width:100%;display:block;`;
       const cardInner = (l) => `
-        <a href="${l.url}" style="text-decoration:none;font-family:${p.fontFamily};font-size:${p.fontSize + 3}px;font-weight:700;color:${p.textColor};display:block;margin-bottom:6px;">${escapeHtml(shortAddress(l.address))}</a>
-        ${sizeChips(l) ? `<div style="font-family:${p.fontFamily};font-size:${p.fontSize}px;color:${p.textColor};opacity:0.75;">${sizeChips(l)}</div>` : ""}`;
+        <a href="${l.url}" style="text-decoration:none;font-family:${p.fontFamily};font-size:${p.fontSize + 3}px;font-weight:700;color:${p.textColor};display:block;text-align:${p.textAlign};margin-bottom:6px;">${escapeHtml(shortAddress(l.address))}</a>
+        ${sizeChips(l) ? `<div style="font-family:${p.fontFamily};font-size:${p.fontSize}px;color:${p.textColor};opacity:0.75;text-align:${p.textAlign};">${sizeChips(l)}</div>` : ""}`;
 
       let bodyHtml;
       if (p.columns === 1 && p.tileLayout === "side-by-side") {
@@ -1530,11 +1531,12 @@ function PropertyPanel({ block, updateProps, openLibrary, openListingsPicker }) 
           <Field label="Section background"><ColorInput value={block.props.bg} onChange={(v) => set({ bg: v })} /></Field>
           <Field label="Card background"><ColorInput value={block.props.cardBg} onChange={(v) => set({ cardBg: v })} /></Field>
           <FontControls
-            props={{ fontFamily: block.props.fontFamily, fontSize: block.props.fontSize, color: block.props.textColor, align: "left" }}
+            props={{ fontFamily: block.props.fontFamily, fontSize: block.props.fontSize, color: block.props.textColor, align: block.props.textAlign }}
             set={(patch) => set({
               ...(patch.fontFamily !== undefined && { fontFamily: patch.fontFamily }),
               ...(patch.fontSize !== undefined && { fontSize: patch.fontSize }),
               ...(patch.color !== undefined && { textColor: patch.color }),
+              ...(patch.align !== undefined && { textAlign: patch.align }),
             })}
           />
 
@@ -1942,8 +1944,9 @@ function BlockPreview({ block }) {
       );
     }
     case "listings": {
+      const justify = p.textAlign === "center" ? "center" : p.textAlign === "right" ? "flex-end" : "flex-start";
       const sizeChips = (l) => (
-        <div style={{ fontFamily: p.fontFamily, fontSize: p.fontSize, color: p.textColor, opacity: 0.75, display: "flex", gap: 14, flexWrap: "wrap" }}>
+        <div style={{ fontFamily: p.fontFamily, fontSize: p.fontSize, color: p.textColor, opacity: 0.75, display: "flex", gap: 14, flexWrap: "wrap", justifyContent: justify }}>
           {tileStats(l).map((s) => (
             <span key={s.id} style={{ display: "flex", alignItems: "center", gap: 4 }}>
               <img src={resolveIconColor(s.icon, p.iconColor)} alt="" style={{ width: 14, height: 14 }} />{s.label}
@@ -1953,7 +1956,7 @@ function BlockPreview({ block }) {
       );
       const cardInner = (l) => (
         <>
-          <div style={{ fontFamily: p.fontFamily, fontSize: p.fontSize + 3, fontWeight: 700, color: p.textColor, marginBottom: 6 }}>{shortAddress(l.address)}</div>
+          <div style={{ fontFamily: p.fontFamily, fontSize: p.fontSize + 3, fontWeight: 700, color: p.textColor, textAlign: p.textAlign, marginBottom: 6 }}>{shortAddress(l.address)}</div>
           {p.showSizes && tileStats(l).length > 0 && sizeChips(l)}
         </>
       );
